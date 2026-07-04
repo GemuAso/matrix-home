@@ -1,0 +1,21 @@
+# =============================================================================
+# matrix-backup.cron - Cron job para backups automáticos
+# -----------------------------------------------------------------------------
+# Instala con:
+#   sudo cp deployment/matrix-backup.cron /etc/cron.d/matrix-backup
+#   sudo chmod 644 /etc/cron.d/matrix-backup
+#   sudo systemctl reload cron
+#
+# Ejecuta backup diario a las 02:00 AM (hora del servidor).
+# Mantiene los últimos 7 días (configurable en .env: BACKUP_RETENTION_DAYS).
+# =============================================================================
+
+# m  h  dom mon dow  user    command
+# Backup diario a las 2:00 AM
+0   2  *   *   *   deploy   /opt/matrix-docker/scripts/linux/backup-db.sh auto_daily >> /opt/matrix-docker/backups/cron.log 2>&1
+
+# Limpieza de backups antiguos (más de 30 días) cada domingo a las 4:00 AM
+0   4  *   *   0   deploy   find /opt/matrix-docker/backups -name "*.sql.gz" -mtime +30 -delete && find /opt/matrix-docker/backups -name "*.tar.gz" -mtime +30 -delete >> /opt/matrix-docker/backups/cron.log 2>&1
+
+# Rotación de logs del cron semanalmente
+0   5  *   *   0   deploy   truncate -s 0 /opt/matrix-docker/backups/cron.log 2>/dev/null || true

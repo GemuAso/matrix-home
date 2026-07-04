@@ -1,0 +1,279 @@
+# =============================================================================
+# docker-compose.yml - Matrix Synapse Stack (Produccion LAN Privada)
+# -----------------------------------------------------------------------------
+# Stack completo: Matrix Synapse + PostgreSQL + Redis + Element Web + Nginx
+# Diseado para despliegue 100% LAN (sin exposicion a Internet publica).
+# Acceso remoto unicamente via Tailscale VPN.
+# Migrable sin modificaciones entre Docker Desktop (Windows) y Ubuntu Server.
+# -----------------------------------------------------------------------------
+# Version: 2.0.0
+# Licencia: Apache-2.0
+# =============================================================================
+
+# Docker Compose v2 (no requiere declaracion 'version' en Compose Specification)
+name: matrix-stack
+
+# =============================================================================
+# Redes personalizadas
+# =============================================================================
+networks:
+  # Red interna - solo servicios backend (no expuestos al host)
+  matrix_internal:
+    driver: bridge
+    name: matrix_internal
+    internal: false  # false para permitir salida a Internet (pull imagenes, SMTP)
+    attachable: false
+
+  # Red frontend - servicios accesibles desde LAN / Tailscale
+  matrix_frontend:
+    driver: bridge
+    name: matrix_frontend
+
+# =============================================================================
+# Volumenes persistentes
+# =============================================================================
+volumes:
+  synapse_data:
+    name: matrix_synapse_data
+    driver: local
+  postgres_data:
+    name: matrix_postgres_data
+    driver: local
+  redis_data:
+    name: matrix_redis_data
+    driver: local
+  element_nginx_cache:
+    name: matrix_element_cache
+    driver: local
+  nginx_logs:
+    name: matrix_nginx_logs
+    driver: local
+
+# =============================================================================
+# Servicios
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Base de datos principal de Synapse
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16.4-alpine3.20
+    container_name: matrix-postgres
+    hostname: postgres
+    restart: unless-stopped
+    networks:
+      - matrix_internal
+    # No exponemos el puerto al host - solo acceso interno entre contenedores
+    # Seguridad: PostgreSQL no debe ser accesible desde fuera del stack
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./backups:/backups:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ}
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
+      -c listen_addresses=*
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # PostgreSQL necesita escribir en /tmp y /var/run/postgresql
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 - Cache y pubsub para Synapse
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine3.20
+    container_name: matrix-redis
+    hostname: redis
+    restart: unless-stopped
+    networks:
+      - matrix_internal
+    # Puerto 6379 SOLO interno, no expuesto al host
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf.template:/usr/local/etc/redis/redis.conf.template:ro
+      - ./redis/entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      TZ: ${TZ}
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      - net.core.somaxconn=511
+
+  # ---------------------------------------------------------------------------
+  # Matrix Synapse - Servidor principal
+  # ---------------------------------------------------------------------------
+  synapse:
+    image: matrixdotorg/synapse:v1.118.0
+    container_name: matrix-synapse
+    hostname: synapse
+    restart: unless-stopped
+    networks:
+      - matrix_internal
+      - matrix_frontend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Puerto 8008 interno - expuesto solo a Nginx a traves de la red
+    expose:
+      - "8008"
+    volumes:
+      - synapse_data:/data
+      - ./synapse/homeserver.yaml.template:/data/homeserver.yaml.template:ro
+      - ./synapse/entrypoint.sh:/entrypoint.sh:ro
+      - ./synapse/log.config:/data/homeserver.log.config:ro
+      - ./synapse/signing.key:/data/homeserver.signing.key:ro
+      - ./backups:/backups:ro
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME}
+      SYNAPSE_PUBLIC_URL: ${SYNAPSE_PUBLIC_URL}
+      SYNAPSE_REPORT_STATS: ${SYNAPSE_REPORT_STATS}
+      SYNAPSE_LOG_CONFIG: ${SYNAPSE_LOG_CONFIG}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${SYNAPSE_REGISTRATION_SHARED_SECRET}
+      SYNAPSE_MACAROON_SECRET_KEY: ${SYNAPSE_MACAROON_SECRET_KEY}
+      SYNAPSE_FORM_SECRET: ${SYNAPSE_FORM_SECRET}
+      SYNAPSE_PASSWORD_PEPPER: ${SYNAPSE_PASSWORD_PEPPER}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      ELEMENT_URL: ${ELEMENT_URL}
+      TZ: ${TZ}
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fSs http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "7"
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+  # ---------------------------------------------------------------------------
+  # Element Web - Cliente web
+  # ---------------------------------------------------------------------------
+  element:
+    image: matrix-element:custom
+    container_name: matrix-element
+    hostname: element
+    restart: unless-stopped
+    networks:
+      - matrix_frontend
+    build:
+      context: ./element
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    volumes:
+      - element_nginx_cache:/var/cache/nginx
+    environment:
+      TZ: ${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # Nginx Reverse Proxy - Terminacion TLS y enrutamiento
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27.2-alpine3.20
+    container_name: matrix-nginx
+    hostname: nginx
+    restart: unless-stopped
+    networks:
+      - matrix_frontend
+    ports:
+      # Solo puertos necesarios para acceso LAN / Tailscale
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - nginx_logs:/var/log/nginx
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/well-known:/etc/nginx/well-known:ro
+    environment:
+      TZ: ${TZ}
+    depends_on:
+      synapse:
+        condition: service_healthy
+      element:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t && wget -q --spider http://localhost/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535

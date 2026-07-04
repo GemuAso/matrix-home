@@ -1,0 +1,125 @@
+# =============================================================================
+# redis.conf - Redis 7 Configuration (TEMPLATE)
+# -----------------------------------------------------------------------------
+# Password is injected via __REDIS_PASSWORD__ placeholder by redis/entrypoint.sh.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Network
+# -----------------------------------------------------------------------------
+bind 0.0.0.0 ::                   
+protected-mode yes                
+port 6379                         
+timeout 0                         
+tcp-keepalive 300                 
+tcp-backlog 511
+
+# -----------------------------------------------------------------------------
+# Security
+# -----------------------------------------------------------------------------
+# Password injected from environment at container startup
+requirepass __REDIS_PASSWORD__
+
+# Rename dangerous commands (not used by Synapse)
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""
+rename-command CONFIG ""
+rename-command KEYS ""
+rename-command DEBUG ""
+rename-command SHUTDOWN MATRIX_REDIS_SHUTDOWN_2026
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+loglevel notice                    
+logfile ""                         
+databases 16                      
+
+# -----------------------------------------------------------------------------
+# Persistence - RDB
+# -----------------------------------------------------------------------------
+save 900 1
+save 300 10
+save 60 10000
+
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir /data
+
+# -----------------------------------------------------------------------------
+# Persistence - AOF
+# -----------------------------------------------------------------------------
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec               
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes           
+
+# -----------------------------------------------------------------------------
+# Memory
+# -----------------------------------------------------------------------------
+maxmemory 512mb                   
+maxmemory-policy allkeys-lru       
+
+# -----------------------------------------------------------------------------
+# Client
+# -----------------------------------------------------------------------------
+maxclients 100                    
+
+# -----------------------------------------------------------------------------
+# Lazy freeing
+# -----------------------------------------------------------------------------
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+lazyfree-lazy-user-del yes
+
+# -----------------------------------------------------------------------------
+# Slow log
+# -----------------------------------------------------------------------------
+slowlog-log-slower-than 10000      
+slowlog-max-len 128
+
+# -----------------------------------------------------------------------------
+# Latency monitor
+# -----------------------------------------------------------------------------
+latency-monitor-threshold 100
+
+# -----------------------------------------------------------------------------
+# Notify keyspace events (disabled)
+# -----------------------------------------------------------------------------
+notify-keyspace-events ""
+
+# -----------------------------------------------------------------------------
+# Advanced configuration
+# -----------------------------------------------------------------------------
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
+list-max-ziplist-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-ziplist-entries 128
+zset-max-ziplist-value 64
+hll-sparse-max-bytes 3000
+stream-node-max-bytes 4096
+stream-node-max-entries 100
+
+# -----------------------------------------------------------------------------
+# Active rehashing
+# -----------------------------------------------------------------------------
+activerehashing yes
+
+# -----------------------------------------------------------------------------
+# Defragmentation protection
+# -----------------------------------------------------------------------------
+activedefrag yes
+
+# -----------------------------------------------------------------------------
+# IO threads (disabled for simplicity)
+# -----------------------------------------------------------------------------
+io-threads 1
+io-threads-do-reads no

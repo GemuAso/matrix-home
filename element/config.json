@@ -1,0 +1,107 @@
+{
+    "default_server_config": {
+        "m.homeserver": {
+            "base_url": "https://matrix.home.arpa",
+            "server_name": "home.arpa"
+        },
+        "m.identity_server": {
+            "base_url": "https://matrix.home.arpa"
+        }
+    },
+    "default_is_url": "https://matrix.home.arpa",
+    "brand": "Element",
+    "integrations_ui_url": "",
+    "integrations_rest_url": "",
+    "integrations_widgets_urls": [],
+    "integrations_jitsi_widget_url": "",
+    "custom_translations_url": "",
+    "hosting_signup_link": "",
+    "bug_report_endpoint_url": "",
+    "features": {
+        "feature_video_rooms": "enable",
+        "feature_group_calls": "enable",
+        "feature_element_call_video_rooms": "enable"
+    },
+    "element_call": {
+        "url": ""
+    },
+    "piwik": {
+        "url": "",
+        "whitelistedDomains": [],
+        "siteId": 1
+    },
+    "settingDefaults": {
+        "breadcrumbs": true,
+        "FTUE.nux_doorsteps": false,
+        "UIFeature.voip": true,
+        "UIFeature.videoRooms": true,
+        "UIFeature.thirdPartyIdentities": false,
+        "UIFeature.identityServer": false,
+        "UIFeature.registration": false,
+        "UIFeature.passwordReset": true,
+        "UIFeature.deactivate": true,
+        "UIFeature.advancedSettings": true,
+        "UIFeature.feedback": false,
+        "UIFeature.shareSocial": false,
+        "UIFeature.thirdPartyIdentities": false,
+        "UIFeature.urlPreviews": false,
+        "UIFeature.widgets": true,
+        "UIFeature.hideBold": true,
+        "messageComposer.showStickersButton": false
+    },
+    "disable_3pid_login": true,
+    "disable_guests": true,
+    "disable_login_language_picker": false,
+    "disable_custom_urls": false,
+    "defaultCountryCode": "CO",
+    "showLabsSettings": false,
+    "roomDirectory": {
+        "servers": [
+            "home.arpa"
+        ]
+    },
+    "welcomeUserId": "",
+    "embedPages": {
+        "homeUrl": "",
+        "loginUrl": ""
+    },
+    "default_theme": "dark",
+    "default_federate": false,
+    "desktopBuilds": {
+        "available": false
+    },
+    "mobileBuilds": {
+        "available": false
+    },
+    "mobile_discovery_links": {
+        "apple": "",
+        "google": "",
+        "fdroid": ""
+    },
+    "privacy_policy_url": "",
+    "terms_of_service_url": "",
+    "branding": {
+        "authHeaderLogoUrl": "themes/element/img/logos/element-logo.svg",
+        "authFooterLinks": [],
+        "welcomeBackgroundUrl": "themes/element/img/backgrounds/lake.jpg"
+    },
+    "jitsi": {
+        "preferredDomain": ""
+    },
+    "posthog": {
+        "projectApiKey": "",
+        "apiHost": ""
+    },
+    "menu": {
+        "enabled": false
+    },
+    "sentry": {
+        "dsn": "",
+        "environment": ""
+    },
+    "enable_presence": true,
+    "enable_email_verification": false,
+    "enable_oidc": false,
+    "default_device_display_name": "Element Web",
+    "mobile_guide_toast": false
+}
