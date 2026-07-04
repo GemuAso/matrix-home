@@ -6,7 +6,7 @@
 # Acceso remoto unicamente via Tailscale VPN.
 # Migrable sin modificaciones entre Docker Desktop (Windows) y Ubuntu Server.
 # -----------------------------------------------------------------------------
-# Version: 2.0.0
+# Version: 3.0.0
 # Licencia: Apache-2.0
 # =============================================================================
 
@@ -21,7 +21,7 @@ networks:
   matrix_internal:
     driver: bridge
     name: matrix_internal
-    internal: false  # false para permitir salida a Internet (pull imagenes, SMTP)
+    internal: true   # true: aislado sin salida a Internet. Synapse sale por matrix_frontend para SMTP.
     attachable: false
 
   # Red frontend - servicios accesibles desde LAN / Tailscale

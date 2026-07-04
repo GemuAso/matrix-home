@@ -1,6 +1,8 @@
 # Matrix Docker Stack
 
 > Despliegue completo de **Matrix Synapse** + **PostgreSQL** + **Redis** + **Element Web** + **Nginx** mediante Docker Compose, listo para producción en entornos **LAN 100%**.
+>
+> **v3.0.0**: Instalación completamente automatizada. Clona, configura `.env`, ejecuta `setup.sh`, y listo. Ninguna clave privada se almacena en Git; todo se genera automáticamente durante la instalación.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Synapse v1.118.0](https://img.shields.io/badge/Synapse-v1.118.0-green.svg)](https://github.com/element-hq/synapse)
@@ -40,10 +42,12 @@ La configuración está preparada para funcionar inicialmente en **Docker Deskto
 ## Características principales
 
 - **Stack completo en Docker Compose v2**: orquestación declarativa con redes, volúmenes, restart policies y healthchecks por servicio.
-- **Aislamiento LAN 100%**: sin exposición a Internet; los puertos solo se publican para la red local.
+- **Aislamiento LAN 100%**: red `matrix_internal` con `internal: true` (sin salida a Internet); solo Nginx expone puertos a la LAN.
 - **Sin SQLite**: PostgreSQL 16 con configuración tuneada (shared_buffers, autovacuum, pg_trgm, citext).
 - **Redis 7 con persistencia AOF+RDB**: caché en memoria y pubsub para Synapse.
-- **TLS auto-firmado con CA local**: certificados generados por script, importables en clientes para evitar warnings.
+- **TLS auto-firmado con CA local y SAN unificado**: certificados generados automáticamente por `setup.sh`, incluyen `matrix.home.arpa`, `element.home.arpa`, `localhost` y `127.0.0.1` en todos los certificados. Nunca se almacenan en Git.
+- **Signing key de Synapse generada automáticamente**: usa el método oficial de Synapse si la imagen Docker está disponible, o generación manual como fallback.
+- **Validaciones pre-instalación completas**: puertos libres, permisos de carpetas, variables obligatorias, detección de valores de ejemplo.
 - **Element Web personalizado**: imagen Docker con `config.json` preconfigurado para tu servidor.
 - **Nginx hardened**: HSTS, CSP, rate limiting, headers de seguridad, sin exponer versión.
 - **Federación deshabilitada por defecto**: máxima privacidad para uso interno.
@@ -127,34 +131,26 @@ Diagramas detallados en formato Mermaid en [`docs/diagrams/mermaid-diagrams.md`]
 
 ### 1. Prerrequisitos
 
-- Docker Desktop (Windows) o Docker Engine + Compose plugin (Linux) instalado.
+- Docker Engine + Compose plugin v2 (Linux) o Docker Desktop (Windows) instalado y corriendo.
 - OpenSSL disponible en el PATH.
-- Permisos de administrador en el host.
+- Permisos de administrador/sudo en el host.
 
-### 2. Clonar o descomprimir el proyecto
+### 2. Clonar el proyecto
 
 ```bash
-# Linux / Mac / Git Bash
+# Linux
 cd /opt
 git clone <repositorio> matrix-docker
 cd matrix-docker
-
-# Windows (PowerShell)
-cd C:\docker
-Expand-Archive matrix-docker.zip .
-cd matrix-docker
 ```
+
+> **Nota**: Al clonar, los archivos `signing.key`, `nginx/certs/*.key` y `nginx/certs/*.crt` **no se descargan** porque están en `.gitignore`. No te preocupes, el script de setup los genera automáticamente.
 
 ### 3. Configurar variables de entorno
 
 ```bash
-# Linux / Mac
 cp .env.example .env
 nano .env   # edita contraseñas y dominios
-
-# Windows (PowerShell)
-Copy-Item .env.example .env
-notepad .env
 ```
 
 Cambia **obligatoriamente**:
@@ -163,9 +159,11 @@ Cambia **obligatoriamente**:
 - `SYNAPSE_REGISTRATION_SHARED_SECRET`
 - `SYNAPSE_MACAROON_SECRET_KEY`
 - `SYNAPSE_ADMIN_API_TOKEN`
+- `SYNAPSE_FORM_SECRET`
+- `SYNAPSE_PASSWORD_PEPPER`
 - `SMTP_PASS` (si usas SMTP)
 
-### 4. Setup inicial
+### 4. Setup inicial (único comando necesario)
 
 ```bash
 # Linux
@@ -175,22 +173,25 @@ bash scripts/linux/setup.sh
 .\scripts\windows\setup.ps1
 ```
 
-Este script:
-1. Verifica dependencias (Docker, OpenSSL).
-2. Genera la signing key de Synapse si no existe.
-3. Genera certificados SSL auto-firmados (CA + cert por dominio).
-4. Valida el archivo `.env`.
-5. Construye la imagen personalizada de Element.
-6. Valida `docker-compose.yml`.
+Este script realiza **todo** de forma automática:
+
+1. Verifica que Docker, Docker Compose y OpenSSL estén instalados y funcionando.
+2. Verifica que `.env` exista (lo crea desde `.env.example` si falta).
+3. Valida las variables obligatorias (detecta valores de ejemplo).
+4. Verifica que los puertos 80 y 443 estén libres.
+5. Verifica permisos de escritura en carpetas críticas.
+6. **Genera automáticamente la signing key de Synapse** (usando el método oficial si la imagen Docker existe, o generación manual como fallback).
+7. **Genera automáticamente todos los certificados TLS** (CA raíz + certificados para matrix, element y default, todos con SAN unificado que incluye `matrix.home.arpa`, `element.home.arpa` y `localhost`).
+8. Construye la imagen personalizada de Element Web.
+9. Valida `docker-compose.yml`.
+10. Realiza validación final de que todos los archivos críticos existen.
+
+> **Ninguna clave privada se almacena jamás en Git.** Todas se generan localmente durante la instalación y son ignoradas por `.gitignore`.
 
 ### 5. Iniciar el stack
 
 ```bash
-# Linux
-bash scripts/linux/start.sh
-
-# Windows
-.\scripts\windows\start.ps1
+docker compose up -d
 ```
 
 El comando descarga imágenes, crea volúmenes, levanta los servicios y espera a que todos los healthchecks pasen (tarda 2-5 minutos en el primer arranque).
@@ -205,11 +206,9 @@ bash scripts/linux/create-admin.sh admin
 .\scripts\windows\create-admin.ps1 admin
 ```
 
-El script pedirá la contraseña de forma interactiva.
-
 ### 7. Acceder a Element
 
-Abre en el navegador (de un equipo de la LAN):
+Abre en el navegador (de un equipo de la LAN o vía Tailscale):
 
 ```
 https://element.home.arpa
@@ -394,8 +393,8 @@ Resumen del flujo:
 Las decisiones de seguridad están documentadas en [`docs/05-seguridad.md`](docs/05-seguridad.md). Aspectos clave:
 
 - **Sin exposición a Internet**: los puertos 80/443 se publican solo para LAN; los demás servicios no se publican.
-- **Secretos externalizados**: contraseñas y tokens en `.env` (gitignored).
-- **TLS terminado en Nginx** con certs auto-firmados validados por CA local importable en clientes.
+- **Secretos externalizados**: contraseñas y tokens en `.env` (gitignored). Claves privadas (certificados, signing key) **nunca en Git**; se generan automáticamente durante `setup.sh`.
+- **Red aislada**: `matrix_internal` con `internal: true` — PostgreSQL y Redis sin salida a Internet. Synapse usa `matrix_frontend` para SMTP.
 - **PostgreSQL con scram-sha-256** y `pg_hba.conf` que solo permite conexiones desde la red Docker interna.
 - **Redis con contraseña** y comandos peligrosos deshabilitados (`FLUSHALL`, `CONFIG`, `KEYS`, `DEBUG`).
 - **Contenedores con `no-new-privileges`** y `security_opt`.

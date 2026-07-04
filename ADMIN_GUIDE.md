@@ -1,6 +1,8 @@
 # Manual del administrador
 
-> Guía práctica para administración diaria del stack Matrix Docker.
+> Guía práctica para administración diaria del stack Matrix Docker v3.0.0.
+>
+> **v3.0.0**: La instalación es completamente automatizada. Todas las claves privadas (certificados TLS, signing key de Synapse) se generan durante `setup.sh` y nunca se almacenan en Git. Si necesitas reinstalar, solo ejecuta `setup.sh` de nuevo y todos los archivos faltantes se regenerarán.
 
 ---
 

@@ -7,6 +7,60 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/sp
 
 ---
 
+## [3.0.0] - 2026-07-05
+
+### Cambio mayor: Instalación completamente automatizada
+
+La instalación ahora requiere únicamente: clonar, configurar `.env`, ejecutar `setup.sh`, y `docker compose up -d`. Ningún archivo adicional debe crearse manualmente. Todas las claves privadas se generan automáticamente y nunca se almacenan en Git.
+
+### Automatización de claves y certificados
+
+- **Generación automática de certificados TLS**: Si no existen `nginx/certs/ca.key`, `ca.crt`, `default.key`, `default.crt` (y los certificados por servicio), se generan automáticamente durante `setup.sh` usando OpenSSL.
+- **SAN unificado**: Todos los certificados generados incluyen `matrix.home.arpa`, `element.home.arpa`, `localhost` y `127.0.0.1` en sus Subject Alternative Names. Esto permite que cualquier certificado funcione para cualquier dominio del stack.
+- **Generación automática de Signing Key de Synapse**: Si no existe `synapse/signing.key`, se genera automáticamente usando el método oficial de Matrix Synapse (`generate_signing_key`) cuando la imagen Docker está disponible, o mediante generación manual como fallback.
+- **Ninguna clave privada en Git**: Todos los archivos `.key`, `.crt`, `.pem`, `.csr` y `signing.key` están en `.gitignore`. Al clonar el repositorio no se descargan; el script de setup los crea.
+
+### Mejoras en scripts de instalación
+
+- **`setup.sh` (Linux)** reescrito con 8 pasos de validación:
+  1. Verificación de dependencias (Docker daemon corriendo, Docker Compose, OpenSSL).
+  2. Verificación/creación de `.env` desde `.env.example`.
+  3. Validación de variables obligatorias (13 variables requeridas).
+  4. Detección de valores de ejemplo en contraseñas y secretos.
+  5. Verificación de permisos de escritura en carpetas críticas.
+  6. Verificación de disponibilidad de puertos 80 y 443.
+  7. Generación automática de signing key y certificados TLS.
+  8. Validación final, build de Element, y verificación de `docker-compose.yml`.
+- **`setup.ps1` (Windows)** reescrito con las mismas 8 validaciones.
+- **`_common.sh` (Linux)** ampliado con nuevas funciones:
+  - `validate_required_vars()`: verifica 13 variables obligatorias.
+  - `check_port()`: verifica que un puerto no esté en uso.
+  - `check_all_ports()`: verifica puertos HTTP y HTTPS.
+  - `check_permissions()`: verifica permisos de escritura en carpetas críticas.
+  - `check_critical_files()`: verifica existencia de .env, signing.key y certificados.
+  - `check_docker()` ahora también verifica que el daemon esté corriendo.
+  - `validate_env()` ampliado para detectar 6 variables de ejemplo (antes solo 3).
+- **`_common.ps1` (Windows)** ampliado con las mismas funciones equivalentes.
+- **`generate-certs.sh` (Linux)** reescrito: todos los certificados incluyen SAN unificado con los 3 dominios. El certificado `default` ahora se genera con la CA (antes era self-signed independiente).
+- **`generate-certs.ps1` (Windows)** reescrito con los mismos cambios.
+
+### Arquitectura
+
+- **Red `matrix_internal` con `internal: true`**: La red de backend ahora es completamente interna, sin salida a Internet. PostgreSQL y Redis no pueden acceder a la red externa bajo ninguna circunstancia. Synapse, que está en ambas redes, usa `matrix_frontend` para SMTP.
+- **Flujo de instalación simplificado**: `git clone → cp .env.example .env → editar .env → ./setup.sh → docker compose up -d`. No se requiere ningún paso manual adicional.
+
+### Validaciones pre-arranque
+
+El script de setup ahora detiene la instalación si se detecta cualquiera de estos problemas:
+- `.env` no existe y no hay `.env.example`
+- Variables obligatorias faltantes en `.env` (13 variables)
+- Puertos 80/443 en uso por otro proceso
+- Sin permisos de escritura en `nginx/certs/`, `synapse/` o `backups/`
+- Docker daemon no está corriendo
+- Falta OpenSSL en el PATH
+- Los certificados o la signing key no se generan correctamente
+
+
 ## [2.0.0] - 2026-07-04
 
 ### Cambio mayor: Dominio interno

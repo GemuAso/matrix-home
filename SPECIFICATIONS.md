@@ -1,6 +1,6 @@
 # Especificaciones técnicas
 
-> Documento formal de especificaciones del proyecto **Matrix Docker Stack** versión 2.0.0.
+> Documento formal de especificaciones del proyecto **Matrix Docker Stack** versión 3.0.0.
 
 ---
 
@@ -16,9 +16,11 @@ Desplegar un servidor de mensajería instantánea **Matrix Synapse** completamen
 2. Garantizar persistencia de datos mediante volúmenes Docker con nombre.
 3. Aislar todos los servicios salvo los estrictamente necesarios para acceso desde la LAN.
 4. Externalizar secretos en archivo `.env` no commiteado a control de versiones.
-5. Proveer scripts administrativos equivalentes para Windows (PowerShell) y Linux (Bash).
-6. Permitir migración transparente entre Docker Desktop (Windows) y Ubuntu Server.
-7. Documentar exhaustivamente cada componente, decisión y procedimiento operativo.
+5. **Generar automáticamente todas las claves privadas** (certificados TLS, signing key de Synapse) durante la instalación, sin almacenarlas jamás en Git.
+6. Validar completamente el entorno antes del primer arranque (dependencias, puertos, permisos, variables).
+7. Proveer scripts administrativos equivalentes para Windows (PowerShell) y Linux (Bash).
+8. Permitir migración transparente entre Docker Desktop (Windows) y Ubuntu Server.
+9. Documentar exhaustivamente cada componente, decisión y procedimiento operativo.
 
 ---
 
@@ -219,10 +221,12 @@ Para 50 usuarios activos con uso moderado (100 mensajes/día + 5 MB media/día):
 
 ### 7.3 Redes Docker
 
-| Red | Tipo | Servicios |
-|-----|------|-----------|
-| `matrix_internal` | bridge | PostgreSQL, Redis, Synapse |
-| `matrix_frontend` | bridge | Nginx, Element, Synapse |
+| Red | Tipo | `internal` | Servicios | Salida a Internet |
+|-----|------|------------|-----------|-------------------|
+| `matrix_internal` | bridge | **true** | PostgreSQL, Redis, Synapse | No (aislado) |
+| `matrix_frontend` | bridge | false | Nginx, Element, Synapse | Sí (Synapse para SMTP) |
+
+> **Nota v3.0.0**: `matrix_internal` tiene `internal: true`, lo que significa que los contenedores en esta red no tienen gateway a Internet. Synapse, que pertenece a ambas redes, utiliza `matrix_frontend` para conexiones SMTP salientes. Esto aísla completamente a PostgreSQL y Redis de cualquier comunicación externa.
 
 ### 7.4 Resolución DNS
 
