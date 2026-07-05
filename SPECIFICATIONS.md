@@ -1,6 +1,6 @@
 # Especificaciones técnicas
 
-> Documento formal de especificaciones del proyecto **Matrix Docker Stack** versión 3.0.0.
+> Documento formal de especificaciones del proyecto **Matrix Docker Stack** versión 4.0.0.
 
 ---
 
@@ -74,6 +74,7 @@ Desplegar un servidor de mensajería instantánea **Matrix Synapse** completamen
 | RF-16 | El sistema debe permitir visualizar logs por servicio | Media | ✅ |
 | RF-17 | El sistema debe permitir cifrado E2EE de mensajes | Alta | ✅ (nativo Synapse) |
 | RF-18 | El sistema debe permitir verificación de dispositivos cruzados | Media | ✅ (nativo Element) |
+| RF-19 | La instalación debe poder realizarse con un único comando (`./install.sh`) | Alta | ✅ (v4.0.0) |
 
 ---
 
@@ -252,14 +253,12 @@ Métodos:
 
 | OS | Versión | Soporte | Notas |
 |----|---------|---------|-------|
-| Windows 10 | 2004+ (build 19041+) | ✅ | Docker Desktop con WSL2 |
-| Windows 11 | 21H2+ | ✅ | Docker Desktop con WSL2 |
 | Ubuntu Server | 20.04 LTS | ✅ | Docker Engine nativo |
 | Ubuntu Server | 22.04 LTS | ✅ Recomendado | Docker Engine nativo |
-| Ubuntu Server | 24.04 LTS | ✅ | Docker Engine nativo |
+| Ubuntu Server | 24.04 LTS | ✅ | Docker Engine nativo, plataforma principal |
 | Debian | 11, 12 | ✅ | Docker Engine nativo |
+| Raspberry Pi 4 | ARM64 | ✅ | Todas las imágenes Docker soportan ARM64 |
 | CentOS/RHEL | 8, 9 | ⚠️ No probado | Requiere ajustes de firewall |
-| macOS | 12+ | ⚠️ No probado | Docker Desktop, posible pero no soportado |
 
 ### 8.2 Navegadores soportados (cliente Element)
 

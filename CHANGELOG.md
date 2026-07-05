@@ -7,6 +7,77 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/sp
 
 ---
 
+## [4.0.0] - 2026-07-05
+
+### Cambio mayor: Instalación de un solo comando
+
+La instalación ahora requiere un único comando: `./install.sh`. No se necesita editar manualmente ningún archivo. Todos los secretos se generan criptográficamente con `openssl rand`.
+
+### Instalador automático (`install.sh`)
+
+- **Nuevo `install.sh`** en la raíz del proyecto: instalador principal que realiza 10 pasos secuenciales.
+- **Nuevo `lib/install-utils.sh`**: biblioteca modular de funciones reutilizables (detección de red, validación de IP, generación de secretos, validación de sistema).
+- **Nuevo `scripts/linux/verify.sh`**: verificación de salud de todos los servicios con diagnóstico de errores.
+- **Paso 1**: Valida sistema operativo (Ubuntu 20.04+, Debian 11+) y arquitectura (x86_64, ARM64).
+- **Paso 2**: Valida recursos (mínimo 5 GB disco, 2 GB RAM).
+- **Paso 3**: Verifica e instala dependencias automáticamente (Docker, Compose, OpenSSL, curl, git, iproute2) via `apt-get` si hay permisos de root.
+- **Paso 4**: Detecta IP LAN automáticamente con `ip route` (sin servicios HTTP externos). Detecta Tailscale si está instalado. Permite al usuario elegir entre LAN y Tailscale.
+- **Paso 5**: Genera `.env` automáticamente con 7 secretos únicos generados con `openssl rand`. Cero valores manuales. Cero valores `cambiar_por`.
+- **Paso 6**: Genera signing key de Synapse (método oficial o fallback) y certificados TLS.
+- **Paso 7**: Construye imagen de Element Web.
+- **Paso 8**: Valida `docker-compose.yml` y ejecuta `docker compose up -d`.
+- **Paso 9**: Verifica que los 5 servicios estén healthy (con timeout y diagnóstico).
+- **Paso 10**: Muestra resumen final con IPs, accesos, instrucciones DNS y comandos útiles.
+
+### Generación automática de secretos
+
+- **7 secretos generados criptográficamente**: `POSTGRES_PASSWORD` (base64), `REDIS_PASSWORD` (hex 64), `SYNAPSE_REGISTRATION_SHARED_SECRET` (hex 64), `SYNAPSE_MACAROON_SECRET_KEY` (hex 64), `SYNAPSE_ADMIN_API_TOKEN` (hex 64), `SYNAPSE_FORM_SECRET` (hex 64), `SYNAPSE_PASSWORD_PEPPER` (hex 64).
+- **Sin valores de ejemplo**: `.env.example` ahora usa `__GENERATE__` como marcador. No existe ningún valor del tipo `cambiar_por...` en el proyecto.
+- **Sin intervención manual**: el usuario no necesita editar ningún archivo de configuración.
+
+### Detección automática de red
+
+- **`detect_lan_ip()`**: usa `ip route show default` + `ip addr` para obtener la IP LAN. Sin dependencias externas (no usa ifconfig.me ni similares).
+- **`detect_tailscale_ip()`**: usa `tailscale ip -4` si Tailscale está instalado.
+- **`validate_ip()`**: verifica que la IP sea IPv4 válida, privada (RFC 1918), no loopback, no multicast, no reservada, no 0.0.0.0.
+- **`detect_lan_cidr()`**: deriva el CIDR automáticamente a partir de la IP detectada.
+- Si el usuario rechaza la IP detectada, permite ingresar una manualmente con validación en bucle.
+
+### Compatibilidad con Raspberry Pi
+
+- Detección de arquitectura: `check_architecture()` soporta x86_64 y ARM64 (aarch64).
+- Las imágenes Docker (`postgres:16.4-alpine3.20`, `redis:7.4-alpine3.20`, `matrixdotorg/synapse:v1.118.0`, `nginx:1.27.2-alpine3.20`) todas tienen soporte multi-arquitectura.
+
+### Instalación de dependencias automática
+
+- Si falta alguna dependencia (Docker, Compose plugin, OpenSSL, curl, git, iproute2), `install.sh` las instala automáticamente con `apt-get install` si se ejecuta con `sudo`.
+- Verifica que Docker daemon esté corriendo; si no, ejecuta `systemctl enable --now docker`.
+
+### Seguridad
+
+- `.env` generado con `chmod 600`.
+- Permisos de signing key: `chmod 600`.
+- Permisos de claves de certificados: `chmod 600`.
+- Todos los secretos generados con `openssl rand` (fuente de entropía del kernel).
+
+### Cambios en archivos existentes
+
+- **`.env.example`**: eliminados todos los valores de ejemplo. Ahora usa `__GENERATE__` como marcador.
+- **`setup.sh` (Linux)**: simplificado. Ahora es un complemento de `install.sh` (genera archivos faltantes sin levantar el stack). Apunta a `install.sh` si no hay `.env`.
+- **`_common.sh` (Linux)**: versión actualizada a 4.0.0.
+- **`docker-compose.yml`**: versión 4.0.0.
+- **`.gitignore`**: agregado `*.srl` y `*.ext` a la lista de archivos de certificados ignorados.
+
+### Flujo de instalación resultante
+
+```
+git clone <repo> matrix-docker && cd matrix-docker
+sudo ./install.sh
+docker compose exec synapse register_new_matrix_user -c http://localhost:8008 -a admin
+```
+
+---
+
 ## [3.0.0] - 2026-07-05
 
 ### Cambio mayor: Instalación completamente automatizada

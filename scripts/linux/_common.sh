@@ -356,6 +356,6 @@ banner() {
 
 EOF
     echo -e "${CYAN}Matrix Synapse Docker Stack - LAN${NC}"
-    echo -e "${CYAN}Versión: 3.0.0${NC}"
+    echo -e "${CYAN}Versión: 4.0.0${NC}"
     echo
 }

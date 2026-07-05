@@ -2,7 +2,7 @@
 
 > Despliegue completo de **Matrix Synapse** + **PostgreSQL** + **Redis** + **Element Web** + **Nginx** mediante Docker Compose, listo para producción en entornos **LAN 100%**.
 >
-> **v3.0.0**: Instalación completamente automatizada. Clona, configura `.env`, ejecuta `setup.sh`, y listo. Ninguna clave privada se almacena en Git; todo se genera automáticamente durante la instalación.
+> **v4.0.0**: Instalación de un solo comando con `./install.sh`. Genera automáticamente todos los secretos, detecta la IP LAN y Tailscale, instala dependencias, y levanta el stack completo sin intervención manual. Compatible con Ubuntu Server y Raspberry Pi (ARM64).
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Synapse v1.118.0](https://img.shields.io/badge/Synapse-v1.118.0-green.svg)](https://github.com/element-hq/synapse)
@@ -129,92 +129,44 @@ Diagramas detallados en formato Mermaid en [`docs/diagrams/mermaid-diagrams.md`]
 
 ## Instalación rápida
 
-### 1. Prerrequisitos
-
-- Docker Engine + Compose plugin v2 (Linux) o Docker Desktop (Windows) instalado y corriendo.
-- OpenSSL disponible en el PATH.
-- Permisos de administrador/sudo en el host.
-
-### 2. Clonar el proyecto
+### 1. Clonar
 
 ```bash
-# Linux
-cd /opt
-git clone <repositorio> matrix-docker
-cd matrix-docker
+sudo git clone <repositorio> /opt/matrix-docker
+cd /opt/matrix-docker
 ```
 
-> **Nota**: Al clonar, los archivos `signing.key`, `nginx/certs/*.key` y `nginx/certs/*.crt` **no se descargan** porque están en `.gitignore`. No te preocupes, el script de setup los genera automáticamente.
+> **Nota**: Los archivos `signing.key`, `nginx/certs/*.key` y `nginx/certs/*.crt` **no se descargan** con el clone porque están en `.gitignore`. El instalador los genera automáticamente.
 
-### 3. Configurar variables de entorno
+### 2. Instalar (un solo comando)
 
 ```bash
-cp .env.example .env
-nano .env   # edita contraseñas y dominios
+sudo ./install.sh
 ```
 
-Cambia **obligatoriamente**:
-- `POSTGRES_PASSWORD`
-- `REDIS_PASSWORD`
-- `SYNAPSE_REGISTRATION_SHARED_SECRET`
-- `SYNAPSE_MACAROON_SECRET_KEY`
-- `SYNAPSE_ADMIN_API_TOKEN`
-- `SYNAPSE_FORM_SECRET`
-- `SYNAPSE_PASSWORD_PEPPER`
-- `SMTP_PASS` (si usas SMTP)
+El instalador realiza **todo** automáticamente:
 
-### 4. Setup inicial (único comando necesario)
+1. **Valida el sistema**: Ubuntu 20.04+ / Debian 11+, arquitectura x86_64 o ARM64, mínimo 2 GB RAM y 5 GB disco.
+2. **Instala dependencias**: si falta Docker, Docker Compose, OpenSSL, curl o git, los instala con `apt-get`.
+3. **Detecta la IP LAN**: usa `ip route` y `ip addr` (sin servicios HTTP externos). También detecta Tailscale si está instalado.
+4. **Genera `.env`**: con 7 secretos únicos generados con `openssl rand` (criptográficamente seguros). Cero intervención manual.
+5. **Genera la signing key** de Synapse (método oficial o fallback).
+6. **Genera certificados TLS** auto-firmados con SAN unificado (matrix.home.arpa, element.home.arpa, localhost).
+7. **Construye Element Web**.
+8. **Levanta el stack** con `docker compose up -d`.
+9. **Verifica** que los 5 servicios estén saludables.
+10. **Muestra un resumen** con las URLs de acceso e instrucciones.
+
+### 3. Crear el primer administrador
 
 ```bash
-# Linux
-bash scripts/linux/setup.sh
-
-# Windows (PowerShell)
-.\scripts\windows\setup.ps1
+docker compose exec synapse register_new_matrix_user \
+    -c http://localhost:8008 -a admin
 ```
 
-Este script realiza **todo** de forma automática:
+### 4. Acceder
 
-1. Verifica que Docker, Docker Compose y OpenSSL estén instalados y funcionando.
-2. Verifica que `.env` exista (lo crea desde `.env.example` si falta).
-3. Valida las variables obligatorias (detecta valores de ejemplo).
-4. Verifica que los puertos 80 y 443 estén libres.
-5. Verifica permisos de escritura en carpetas críticas.
-6. **Genera automáticamente la signing key de Synapse** (usando el método oficial si la imagen Docker existe, o generación manual como fallback).
-7. **Genera automáticamente todos los certificados TLS** (CA raíz + certificados para matrix, element y default, todos con SAN unificado que incluye `matrix.home.arpa`, `element.home.arpa` y `localhost`).
-8. Construye la imagen personalizada de Element Web.
-9. Valida `docker-compose.yml`.
-10. Realiza validación final de que todos los archivos críticos existen.
-
-> **Ninguna clave privada se almacena jamás en Git.** Todas se generan localmente durante la instalación y son ignoradas por `.gitignore`.
-
-### 5. Iniciar el stack
-
-```bash
-docker compose up -d
-```
-
-El comando descarga imágenes, crea volúmenes, levanta los servicios y espera a que todos los healthchecks pasen (tarda 2-5 minutos en el primer arranque).
-
-### 6. Crear el primer usuario administrador
-
-```bash
-# Linux
-bash scripts/linux/create-admin.sh admin
-
-# Windows
-.\scripts\windows\create-admin.ps1 admin
-```
-
-### 7. Acceder a Element
-
-Abre en el navegador (de un equipo de la LAN o vía Tailscale):
-
-```
-https://element.home.arpa
-```
-
-> **Importante**: Debes configurar DNS local o el archivo `hosts` del cliente para que `matrix.home.arpa` y `element.home.arpa` apunten a la IP del host Docker. Importa el certificado `nginx/certs/ca.crt` en el trust store del cliente para evitar warnings del navegador.
+Abre `https://element.home.arpa` en un navegador de la LAN (o vía Tailscale). Configura DNS local o el archivo `hosts` para que `matrix.home.arpa` y `element.home.arpa` apunten a la IP del servidor. Importa `nginx/certs/ca.crt` en el trust store del cliente.
 
 ---
 

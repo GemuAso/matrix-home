@@ -12,12 +12,14 @@
 *.secret
 
 # -----------------------------------------------------------------------------
-# Certificados y claves
+# Certificados y claves (se generan automáticamente por install.sh)
 # -----------------------------------------------------------------------------
 nginx/certs/*.crt
 nginx/certs/*.key
 nginx/certs/*.pem
 nginx/certs/*.csr
+nginx/certs/*.srl
+nginx/certs/*.ext
 nginx/certs/ca/
 synapse/signing.key
 synapse/*.signing.key
@@ -46,7 +48,7 @@ nginx/logs/*.log
 synapse/logs/
 
 # -----------------------------------------------------------------------------
-# Volúmenes locales (si se usan bind mounts en vez de volúmenes Docker)
+# Volúmenes locales
 # -----------------------------------------------------------------------------
 data/
 volumes/

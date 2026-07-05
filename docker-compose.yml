@@ -6,7 +6,7 @@
 # Acceso remoto unicamente via Tailscale VPN.
 # Migrable sin modificaciones entre Docker Desktop (Windows) y Ubuntu Server.
 # -----------------------------------------------------------------------------
-# Version: 3.0.0
+# Version: 4.0.0
 # Licencia: Apache-2.0
 # =============================================================================
 
