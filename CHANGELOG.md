@@ -7,6 +7,88 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/sp
 
 ---
 
+## [5.0.0] - 2026-07-06
+
+### Cambio mayor: Producción lista, instalación cero-touch y corrección crítica de Synapse
+
+- **Corrección crítica: Synapse nunca iniciaba**. La imagen oficial `matrixdotorg/synapse:v1.118.0` NO incluye `envsubst` (del paquete `gettext-base`) ni `curl`. El entrypoint usaba `envsubst` para generar `homeserver.yaml` desde el template, y el healthcheck usaba `curl`. Ambos comandos fallaban silenciosamente. Solución: nuevo `synapse/Dockerfile` personalizado que instala `gettext-base` y `curl` en la capa de build. Las dependencias se instalan UNA VEZ al construir la imagen, no en cada arranque.
+
+### Nuevo Dockerfile personalizado
+
+- **Nuevo `synapse/Dockerfile`**: Imagen personalizada basada en `matrixdotorg/synapse:v1.118.0` que instala `gettext-base` (envsubst) y `curl` de forma permanente. Multi-arch (amd64 + arm64) heredada de la imagen base.
+
+### docker-compose.yml auditado
+
+- **docker-compose.yml auditado completamente**: Servicio Synapse ahora usa `build` en lugar de `image` directa. Agregados `deploy.resources.limits.memory` a todos los servicios (PostgreSQL: 1G, Redis: 512M, Synapse: 2G, Nginx: 256M). Corregidos healthchecks para usar `$${VAR}` (escape de Docker Compose). Eliminado `read_only: false` innecesario en PostgreSQL. `start_period` de Synapse aumentado a 90s para dar tiempo a la generación de homeserver.yaml.
+
+### Corrección de Redis
+
+- **Corregido entrypoint de Redis**: Cambiado de `#!/bin/bash` a `#!/bin/sh` para compatibilidad con Alpine BusyBox. Sintaxis `[[` cambiada a `[` (POSIX).
+
+### install.sh reescrito con 14 pasos
+
+- **install.sh reescrito con 14 pasos** (antes 10):
+  1. Sistema operativo y arquitectura (incluye verificación de kernel, detección de contenedor Docker)
+  2. Recursos del sistema (disco, RAM, swap, CPU cores)
+  3. Docker y Docker Compose (versión, storage driver, contenedores conflictivos)
+  4. Puertos disponibles (detección de procesos ocupantes con PID)
+  5. Dependencias del sistema (incluye xxd para signing key)
+  6. Detección de IP (lista todas las interfaces, selección interactiva)
+  7. Generación de .env (7 secretos, muestra fingerprint)
+  8. Generación de signing key (método self-contained con openssl, sin depender de Docker)
+  9. Generación de certificados TLS
+  10. Validación de permisos y archivos críticos (21 archivos de configuración verificados)
+  11. Construcción de imágenes personalizadas (Synapse + Element)
+  12. Despliegue del stack
+  13. Verificación de servicios (timeouts diferenciados por servicio)
+  14. Pruebas automáticas (14 pruebas) + resumen final
+
+### Pruebas automáticas post-instalación
+
+- **Pruebas automáticas post-instalación**: 14 pruebas que verifican: Docker, Docker Compose, Secrets (.env), Signing Key, Certificados TLS, PostgreSQL healthy, Redis healthy, Synapse healthy, Element healthy, Nginx healthy, Healthcheck Nginx HTTP, Matrix API health endpoint, Permisos .env (600), Configuración Synapse (sin variables sin sustituir). Solo si TODAS pasan se muestra "INSTALACIÓN COMPLETADA EXITOSAMENTE".
+
+### Nuevos scripts de administración
+
+- **Nuevos scripts de administración** en `scripts/admin/`:
+  - `status.sh`: Estado detallado (running, uptime, CPU, RAM por servicio)
+  - `healthcheck.sh`: Healthchecks profundos con tabla resumen (Synapse API, pg_isready, redis-cli, nginx -t)
+  - `restart.sh`: Reinicio individual o total con menú interactivo
+  - `start.sh`: Inicio con verificación de salud
+  - `stop.sh`: Detención con confirmación
+  - `logs.sh`: Visualización de logs con filtros y follow
+  - `update.sh`: Actualización de imágenes con rebuild
+  - `backup.sh`: Backup completo (pg_dump + configs + certs) con rotación
+  - `restore.sh`: Restauración desde backup con selección interactiva
+  - `uninstall.sh`: Desinstalador profesional con 5 niveles (copiado también a raíz del proyecto)
+
+### Nuevo uninstall.sh
+
+- **Nuevo `uninstall.sh`**: Desinstalador profesional con 5 opciones:
+  1. Eliminar solo contenedores (datos preservados)
+  2. Eliminar contenedores y redes
+  3. Eliminar contenedores, redes y volúmenes (datos eliminados)
+  4. Eliminar completamente (contenedores, redes, volúmenes, .env, certificados, signing key)
+  5. Crear backup antes de eliminar
+  Requiere doble confirmación (escribir "ELIMINAR") para operaciones destructivas.
+
+### lib/install-utils.sh mejorado
+
+- **`lib/install-utils.sh` mejorado**: Nuevas funciones `check_port_free()`, `check_docker_version()`, `ensure_permissions()`. Soporte para Raspberry Pi OS (ID=raspbian). Ubuntu mínimo ahora 22.04+. `detect_lan_cidr()` ahora usa `ip route` para obtener el CIDR real. `install_dependencies()` incluye `xxd`.
+
+### Seguridad mejorada
+
+- **Seguridad mejorada**: Validación de permisos en install.sh (chmod 600 para .env y signing.key). Validación de que la configuración Synapse no tenga variables sin sustituir. healthcheck de Synapse aumentado a 90s start_period. Límites de memoria en todos los servicios.
+
+### Compatibilidad ampliada
+
+- **Compatibilidad ampliada**: Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, Debian 11+, Raspberry Pi OS 64-bit. AMD64 y ARM64. Verificación de kernel mínimo (5.4).
+
+### Entrypoint de Synapse mejorado
+
+- **Entryoint de Synapse mejorado**: Cambiado a `#!/bin/sh` para máxima compatibilidad. Agregado `sed` para eliminar líneas con variables sin sustituir (defensa en profundidad).
+
+---
+
 ## [4.0.0] - 2026-07-05
 
 ### Cambio mayor: Instalación de un solo comando

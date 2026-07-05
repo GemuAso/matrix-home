@@ -75,17 +75,69 @@ detect_tailscale_ip() {
 }
 
 detect_lan_cidr() {
-    # Deriva el CIDR de la LAN a partir de la IP detectada.
+    # Determina el CIDR real de la LAN usando `ip route` sobre la
+    # interfaz que tiene la ruta por defecto. Ya no se basa en adivinar
+    # a partir del primer octeto; en su lugar consulta la tabla de rutas
+    # del kernel para obtener la red exacta (p.ej. 192.168.50.0/24).
+    #
+    # Parámetro opcional $1: dirección IP del host (se usa como reserva
+    # si no se puede determinar el CIDR por ruta).
     local ip="$1"
-    local first_octet
-    first_octet="${ip%%.*}"
+    local interface cidr
 
-    case "${first_octet}" in
-        10)   echo "10.0.0.0/8" ;;
-        172)  echo "172.16.0.0/12" ;;
-        192)  echo "192.168.1.0/24" ;;
-        *)    echo "${ip}/32" ;;
-    esac
+    # Obtener la interfaz de la ruta por defecto
+    interface=$(ip route show default 2>/dev/null | awk '/default/ {print $5}')
+    if [[ -n "${interface}" ]]; then
+        # Buscar la ruta de red conectada (proto kernel / scope link)
+        # que pertenece a esa interfaz. El formato típico es:
+        #   192.168.50.0/24 dev eth0 proto kernel scope link src 192.168.50.10
+        cidr=$(ip route show dev "${interface}" scope link proto kernel 2>/dev/null \
+            | awk '{print $1}' | head -1)
+
+        # Filtrar solo entradas que parezcan un CIDR válido (contienen /)
+        if [[ -n "${cidr}" ]] && [[ "${cidr}" == */* ]]; then
+            echo "${cidr}"
+            return 0
+        fi
+
+        # Reserva: usar `ip addr` para obtener la IP con su máscara de prefijo
+        # p.ej. "192.168.50.10/24" -> derivar "192.168.50.0/24"
+        local addr_with_prefix
+        addr_with_prefix=$(ip -4 addr show "${interface}" 2>/dev/null \
+            | grep -oP 'inet \K[0-9]+(\.[0-9]+){3}/[0-9]+' | head -1)
+        if [[ -n "${addr_with_prefix}" ]]; then
+            local prefix="${addr_with_prefix#*/}"
+            local host_part="${addr_with_prefix%/*}"
+            # Calcular la dirección de red aplicando la máscara
+            local IFS='.'
+            # shellcheck disable=SC2206
+            local octets=(${host_part})
+            IFS=' '
+            case "${prefix}" in
+                8)  echo "${octets[0]}.0.0.0/${prefix}" ;;
+                16) echo "${octets[0]}.${octets[1]}.0.0/${prefix}" ;;
+                24) echo "${octets[0]}.${octets[1]}.${octets[2]}.0/${prefix}" ;;
+                *)  echo "${host_part}/${prefix}" ;;
+            esac
+            return 0
+        fi
+    fi
+
+    # Último recurso: derivar del primer octeto (comportamiento original)
+    if [[ -n "${ip}" ]]; then
+        local first_octet="${ip%%.*}"
+        case "${first_octet}" in
+            10)   echo "10.0.0.0/8" ;;
+            172)  echo "172.16.0.0/12" ;;
+            192)  echo "192.168.1.0/24" ;;
+            *)    echo "${ip}/32" ;;
+        esac
+        return 0
+    fi
+
+    # Sin información suficiente
+    echo "0.0.0.0/0"
+    return 1
 }
 
 # -----------------------------------------------------------------------------
@@ -196,10 +248,10 @@ check_os() {
     echo "${ID}:${VERSION_ID}"
     case "${ID}" in
         ubuntu)
-            # Verificar que sea 20.04+
+            # Verificar que sea 22.04+
             local major
             major=$(echo "${VERSION_ID}" | awk -F. '{print $1}')
-            if (( major >= 20 )); then
+            if (( major >= 22 )); then
                 return 0
             else
                 return 1
@@ -209,6 +261,16 @@ check_os() {
             local deb_major
             deb_major=$(echo "${VERSION_ID}" | awk -F. '{print $1}')
             if (( deb_major >= 11 )); then
+                return 0
+            else
+                return 1
+            fi
+            ;;
+        raspbian)
+            # Raspberry Pi OS (basado en Debian)
+            local rpi_major
+            rpi_major=$(echo "${VERSION_ID}" | awk -F. '{print $1}')
+            if (( rpi_major >= 11 )); then
                 return 0
             else
                 return 1
@@ -255,11 +317,11 @@ check_memory() {
 }
 
 # -----------------------------------------------------------------------------
-# Instalación de dependencias (solo Ubuntu/Debian)
+# Instalación de dependencias (solo Ubuntu/Debian/Raspberry Pi OS)
 # -----------------------------------------------------------------------------
 install_dependencies() {
     local to_install=()
-    local cmds=("docker" "docker compose" "openssl" "curl" "git" "ip")
+    local cmds=("docker" "docker compose" "openssl" "curl" "git" "ip" "xxd")
 
     for cmd_spec in "${cmds[@]}"; do
         if [[ "${cmd_spec}" == "docker compose" ]]; then
@@ -270,6 +332,8 @@ install_dependencies() {
             case "${cmd_spec}" in
                 docker) to_install+=("docker.io" "docker-compose-plugin") ;;
                 ip)    to_install+=("iproute2") ;;
+                xxd)   # Puede estar en vim-common o en el paquete xxd (Debian 12+)
+                       to_install+=("xxd") ;;
                 *)     to_install+=("${cmd_spec}") ;;
             esac
         fi
@@ -280,6 +344,148 @@ install_dependencies() {
     fi
 
     echo "INSTALAR:${to_install[*]}"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# Validación de puertos
+# -----------------------------------------------------------------------------
+check_port_free() {
+    # Verifica si un puerto TCP está libre (no en uso).
+    # Usa `ss` preferiblemente; si no está disponible, recurre a `netstat`.
+    #
+    # Parámetro $1: número de puerto (1-65535)
+    #
+    # Devuelve:
+    #   0 y "LIBRE"       si el puerto no está en uso
+    #   1 y "OCUPADO:..." si el puerto ya está en uso por un proceso
+    #   2 y "INVALIDO"    si el número de puerto no es válido
+    local port="$1"
+
+    # Validar que sea un número de puerto válido
+    if ! [[ "${port}" =~ ^[0-9]+$ ]] || (( port < 1 )) || (( port > 65535 )); then
+        echo "INVALIDO"
+        return 2
+    fi
+
+    local listener_info=""
+
+    # Intentar primero con `ss` (disponible en sistemas modernos)
+    if command -v ss >/dev/null 2>&1; then
+        listener_info=$(ss -tlnH 2>/dev/null | awk -v p=":${port}$" '$4 ~ p {print $0; exit}')
+    # Reserva con `netstat`
+    elif command -v netstat >/dev/null 2>&1; then
+        listener_info=$(netstat -tln 2>/dev/null | awk -v p="${port}" '$4 ~ ":"p"$" {print $0; exit}')
+    else
+        # Ninguna herramienta disponible: no se puede determinar, asumir libre
+        echo "LIBRE:desconocido"
+        return 0
+    fi
+
+    if [[ -n "${listener_info}" ]]; then
+        echo "OCUPADO:${port} - ${listener_info}"
+        return 1
+    fi
+
+    echo "LIBRE"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# Validación de versión de Docker
+# -----------------------------------------------------------------------------
+check_docker_version() {
+    # Verifica que Docker esté instalado y su versión sea suficiente.
+    # La versión mínima recomendada es 20.10.x (soporte completo de
+    # docker compose v2 y características de red modernas).
+    #
+    # Devuelve:
+    #   0 y "OK:<versión>"              si la versión es suficiente
+    #   1 y "ANTIGUA:<versión>:<mínima>" si la versión es muy vieja
+    #   2 y "NO_INSTALADO"              si Docker no está disponible
+    local min_major=20
+    local min_minor=10
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "NO_INSTALADO"
+        return 2
+    fi
+
+    local version_str
+    version_str=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+    if [[ -z "${version_str}" ]]; then
+        # Si no se puede obtener la versión del servidor, intentar con el cliente
+        version_str=$(docker version --format '{{.Client.Version}}' 2>/dev/null)
+    fi
+    if [[ -z "${version_str}" ]]; then
+        echo "NO_INSTALADO"
+        return 2
+    fi
+
+    # Extraer versión mayor y menor (p.ej. "24.0.7" -> mayor=24, menor=0)
+    local ver_major ver_minor
+    ver_major=$(echo "${version_str}" | awk -F. '{print $1}')
+    ver_minor=$(echo "${version_str}" | awk -F. '{print $2}')
+
+    # Asegurar que son números (si contienen caracteres extra, la comparación
+    # aritmética en bash los ignora)
+    ver_major=$((ver_major + 0))
+    ver_minor=$((ver_minor + 0))
+
+    if (( ver_major > min_major )) || \
+       { (( ver_major == min_major )) && (( ver_minor >= min_minor )); }; then
+        echo "OK:${version_str}"
+        return 0
+    else
+        echo "ANTIGUA:${version_str}:${min_major}.${min_minor}"
+        return 1
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# Ayudantes de permisos de archivos
+# -----------------------------------------------------------------------------
+ensure_permissions() {
+    # Establece permisos correctos sobre uno o más archivos.
+    # Útil para asegurar que archivos sensibles (claves, .env, configuración)
+    # tengan los permisos adecuados después de la instalación.
+    #
+    # Uso:
+    #   ensure_permissions 600 /ruta/al/archivo_secreto
+    #   ensure_permissions 750 /ruta/al/directorio
+    #
+    # Parámetros:
+    #   $1      - permisos en formato octal (p.ej. 600, 640, 750)
+    #   $2 ...  - rutas a archivos o directorios
+    #
+    # Devuelve:
+    #   0 si todos los cambios tuvieron éxito
+    #   1 si algún archivo no existe o no se pudo cambiar
+    local perms="$1"
+    shift
+    local errores=0
+
+    # Validar formato octal
+    if ! [[ "${perms}" =~ ^[0-7]{3,4}$ ]]; then
+        echo "ERROR: permisos '${perms}' no válidos (se espera formato octal, p.ej. 600)"
+        return 1
+    fi
+
+    for ruta in "$@"; do
+        if [[ ! -e "${ruta}" ]]; then
+            echo "ERROR: no existe '${ruta}'"
+            errores=$((errores + 1))
+            continue
+        fi
+        if ! chmod "${perms}" "${ruta}" 2>/dev/null; then
+            echo "ERROR: no se pudieron establecer permisos ${perms} en '${ruta}'"
+            errores=$((errores + 1))
+        fi
+    done
+
+    if (( errores > 0 )); then
+        return 1
+    fi
     return 0
 }
 

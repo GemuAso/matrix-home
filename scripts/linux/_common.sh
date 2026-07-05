@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# _common.sh - Funciones y variables compartidas por todos los scripts
+# _common.sh - Funciones y variables compartidas por todos los scripts Linux
 # -----------------------------------------------------------------------------
 # Este archivo NO se ejecuta directamente. Se incluye con `source` desde otros
 # scripts de la carpeta scripts/linux/.
+#
+# Version: 5.0.0
 # =============================================================================
 
 set -Eeuo pipefail
@@ -16,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # -----------------------------------------------------------------------------
-# Colores para output
+# Colores para output (solo si stdout es una terminal)
 # -----------------------------------------------------------------------------
 if [[ -t 1 ]]; then
     RED='\033[0;31m'
@@ -25,7 +27,7 @@ if [[ -t 1 ]]; then
     BLUE='\033[0;34m'
     CYAN='\033[0;36m'
     BOLD='\033[1m'
-    NC='\033[0m' # No Color
+    NC='\033[0m'
 else
     RED=''
     GREEN=''
@@ -46,8 +48,8 @@ if [[ -f "${ENV_FILE}" ]]; then
     source "${ENV_FILE}"
     set +a
 else
-    echo -e "${YELLOW}[WARN] No se encontró .env en ${ENV_FILE}${NC}"
-    echo -e "${YELLOW}       Copia .env.example a .env y ajusta los valores.${NC}"
+    echo -e "${YELLOW}[WARN] No se encontro .env en ${ENV_FILE}${NC}"
+    echo -e "${YELLOW}       Ejecuta: sudo ./install.sh${NC}"
 fi
 
 # -----------------------------------------------------------------------------
@@ -61,31 +63,30 @@ debug()   { [[ "${DEBUG:-false}" == "true" ]] && echo -e "${CYAN}[$(date '+%H:%M
 header()  { echo; echo -e "${BLUE}${BOLD}=== $* ===${NC}"; }
 
 # -----------------------------------------------------------------------------
-# Verificar que un comando está disponible
+# Verificar que un comando esta disponible
 # -----------------------------------------------------------------------------
 require_cmd() {
     local cmd="$1"
     if ! command -v "${cmd}" >/dev/null 2>&1; then
-        fatal "Comando requerido no encontrado: ${cmd}. Instálalo antes de continuar."
+        fatal "Comando requerido no encontrado: ${cmd}. Instalalo antes de continuar."
     fi
 }
 
 # -----------------------------------------------------------------------------
-# Verificar que Docker y Docker Compose están disponibles
+# Verificar que Docker y Docker Compose estan disponibles
 # -----------------------------------------------------------------------------
 check_docker() {
     require_cmd docker
     if ! docker compose version >/dev/null 2>&1; then
         if command -v docker-compose >/dev/null 2>&1; then
-            warn "Se detectó docker-compose v1. Se recomienda docker compose v2."
-            warn "Alias: alias docker-compose='docker compose'"
+            warn "Se detecto docker-compose v1. Se requiere docker compose v2 (plugin)."
+            fatal "Instala: sudo apt-get install docker-compose-plugin"
         else
-            fatal "Docker Compose no está instalado. Instala 'docker compose plugin'."
+            fatal "Docker Compose no esta instalado. Instala 'docker compose plugin'."
         fi
     fi
-    # Verificar que Docker daemon esté corriendo
     if ! docker info >/dev/null 2>&1; then
-        fatal "Docker daemon no está corriendo. Inicia Docker antes de continuar."
+        fatal "Docker daemon no esta corriendo. Inicia Docker antes de continuar."
     fi
 }
 
@@ -97,7 +98,7 @@ dc() {
 }
 
 # -----------------------------------------------------------------------------
-# Verificar que el stack esté corriendo
+# Verificar que el stack este corriendo
 # -----------------------------------------------------------------------------
 stack_running() {
     dc ps --services --filter "status=running" 2>/dev/null | grep -q .
@@ -105,7 +106,7 @@ stack_running() {
 
 require_stack_running() {
     if ! stack_running; then
-        fatal "El stack no está corriendo. Ejecuta: scripts/linux/start.sh"
+        fatal "El stack no esta corriendo. Ejecuta: sudo ./scripts/admin/start.sh"
     fi
 }
 
@@ -135,48 +136,39 @@ validate_required_vars() {
     local missing=0
     for var in "${REQUIRED_ENV_VARS[@]}"; do
         if [[ -z "${!var:-}" ]]; then
-            error "Variable obligatoria vacía o no definida: ${var}"
+            error "Variable obligatoria vacia o no definida: ${var}"
             missing=$((missing+1))
         fi
     done
     if [[ $missing -gt 0 ]]; then
-        fatal "Faltan ${missing} variables obligatorias en .env. Revisa el archivo."
+        fatal "Faltan ${missing} variables obligatorias en .env. Ejecuta: sudo ./install.sh"
     fi
-    log "   Todas las variables obligatorias están definidas (${#REQUIRED_ENV_VARS[@]} variables)"
+    log "   Todas las variables obligatorias estan definidas (${#REQUIRED_ENV_VARS[@]} variables)"
 }
 
 # -----------------------------------------------------------------------------
-# Validar que .env tenga valores reales (no ejemplos)
+# Validar que .env tenga valores reales (no marcadores)
 # -----------------------------------------------------------------------------
 validate_env() {
     local problems=0
-    if [[ "${POSTGRES_PASSWORD:-}" == *"ChangeMe"* ]] || [[ "${POSTGRES_PASSWORD:-}" == *"CambiaEsta"* ]] || [[ "${POSTGRES_PASSWORD:-}" == *"cambiar_por"* ]]; then
-        warn "POSTGRES_PASSWORD parece ser valor de ejemplo. Cámbialo en .env"
-        problems=$((problems+1))
-    fi
-    if [[ "${REDIS_PASSWORD:-}" == *"cambiar_por"* ]]; then
-        warn "REDIS_PASSWORD parece ser valor de ejemplo. Cámbialo en .env"
-        problems=$((problems+1))
-    fi
-    if [[ "${SYNAPSE_REGISTRATION_SHARED_SECRET:-}" == *"cambiar_por"* ]]; then
-        warn "SYNAPSE_REGISTRATION_SHARED_SECRET parece ser valor de ejemplo."
-        problems=$((problems+1))
-    fi
-    if [[ "${SYNAPSE_MACAROON_SECRET_KEY:-}" == *"cambiar_por"* ]]; then
-        warn "SYNAPSE_MACAROON_SECRET_KEY parece ser valor de ejemplo."
-        problems=$((problems+1))
-    fi
-    if [[ "${SYNAPSE_FORM_SECRET:-}" == *"cambiar_por"* ]]; then
-        warn "SYNAPSE_FORM_SECRET parece ser valor de ejemplo."
-        problems=$((problems+1))
-    fi
-    if [[ "${SYNAPSE_PASSWORD_PEPPER:-}" == *"cambiar_por"* ]]; then
-        warn "SYNAPSE_PASSWORD_PEPPER parece ser valor de ejemplo."
-        problems=$((problems+1))
-    fi
+    local markers=("__GENERATE__" "cambiar_por" "ChangeMe" "CambiaEsta" "CHANGEME" "example")
+    local secret_vars=("POSTGRES_PASSWORD" "REDIS_PASSWORD" "SYNAPSE_REGISTRATION_SHARED_SECRET"
+                       "SYNAPSE_MACAROON_SECRET_KEY" "SYNAPSE_FORM_SECRET" "SYNAPSE_PASSWORD_PEPPER")
+
+    for var in "${secret_vars[@]}"; do
+        local val="${!var:-}"
+        for marker in "${markers[@]}"; do
+            if [[ "${val}" == *"${marker}"* ]]; then
+                warn "${var} parece ser un valor de ejemplo (contiene '${marker}')."
+                problems=$((problems+1))
+                break
+            fi
+        done
+    done
+
     if [[ $problems -gt 0 ]]; then
-        warn "Se encontraron $problems variables con valores de ejemplo."
-        warn "El stack puede funcionar pero NO es seguro para producción."
+        warn "Se encontraron ${problems} variables con valores no seguros."
+        warn "Ejecuta: sudo ./install.sh  # para regenerar .env con secretos seguros"
     fi
     return 0
 }
@@ -187,9 +179,8 @@ validate_env() {
 check_port() {
     local port="$1"
     local description="${2:-Puerto ${port}}"
-
-    # Verificar con ss (Linux moderno), netstat, o lsof
     local in_use=false
+
     if command -v ss >/dev/null 2>&1; then
         if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
             in_use=true
@@ -201,13 +192,11 @@ check_port() {
     fi
 
     if [[ "${in_use}" == "true" ]]; then
-        # Excepción: ignorar si el propio stack lo está usando
         if dc ps 2>/dev/null | grep -q "matrix-nginx"; then
             debug "Puerto ${port} en uso por el propio stack. Aceptable."
         else
-            error "${description} (${port}) ya está en uso por otro proceso."
-            error "   Libéralo antes de continuar:"
-            error "   sudo lsof -i :${port}   # para identificar el proceso"
+            error "${description} (${port}) ya esta en uso por otro proceso."
+            error "   Solucion: sudo lsof -i :${port}"
             return 1
         fi
     else
@@ -226,17 +215,15 @@ check_all_ports() {
     check_port "${https_port}" "HTTPS (Nginx)" || ports_ok=false
 
     if [[ "${ports_ok}" == "false" ]]; then
-        fatal "Hay puertos en uso. Libéralos o cambia NGINX_HTTP_PORT / NGINX_HTTPS_PORT en .env"
+        fatal "Hay puertos en uso. Libera los puertos o cambia NGINX_HTTP_PORT / NGINX_HTTPS_PORT en .env"
     fi
 }
 
 # -----------------------------------------------------------------------------
-# Verificar permisos de carpetas críticas
+# Verificar permisos de carpetas criticas
 # -----------------------------------------------------------------------------
 check_permissions() {
     local problems=0
-
-    # Verificar que podemos escribir en las carpetas necesarias
     local dirs=(
         "${PROJECT_ROOT}/nginx/certs"
         "${PROJECT_ROOT}/synapse"
@@ -254,7 +241,6 @@ check_permissions() {
                 problems=$((problems+1))
             fi
         else
-            # Crear si no existe
             mkdir -p "${dir}" 2>/dev/null || {
                 error "No se pudo crear el directorio ${dir}"
                 problems=$((problems+1))
@@ -263,35 +249,32 @@ check_permissions() {
     done
 
     if [[ $problems -gt 0 ]]; then
-        fatal "Problemas de permisos detectados. Corrígelos antes de continuar."
+        fatal "Problemas de permisos detectados."
     fi
     log "   Permisos de carpetas correctos"
 }
 
 # -----------------------------------------------------------------------------
-# Verificar existencia de archivos críticos generados
+# Verificar existencia de archivos criticos generados
 # -----------------------------------------------------------------------------
 check_critical_files() {
     local problems=0
 
-    log "Verificando archivos críticos..."
+    log "Verificando archivos criticos..."
 
-    # .env
     if [[ ! -f "${PROJECT_ROOT}/.env" ]]; then
-        error "Archivo .env no encontrado. Copia .env.example a .env"
+        error "Archivo .env no encontrado. Ejecuta: sudo ./install.sh"
         problems=$((problems+1))
     else
         log "   .env existe"
     fi
 
-    # signing.key
     if [[ ! -f "${PROJECT_ROOT}/synapse/signing.key" ]] || [[ ! -s "${PROJECT_ROOT}/synapse/signing.key" ]]; then
-        warn "   signing.key no existe o está vacío (se generará automáticamente)"
+        warn "   signing.key no existe o esta vacio (se genera automaticamente con install.sh)"
     else
         log "   signing.key existe"
     fi
 
-    # Certificados
     local cert_files=(
         "nginx/certs/ca.crt"
         "nginx/certs/ca.key"
@@ -311,24 +294,24 @@ check_critical_files() {
     done
 
     if [[ $missing_certs -gt 0 ]]; then
-        warn "   Faltan ${missing_certs} archivos de certificado (se generarán automáticamente)"
+        warn "   Faltan ${missing_certs} archivos de certificado (se generan automaticamente con install.sh)"
     else
         log "   Todos los certificados existen (${#cert_files[@]} archivos)"
     fi
 
     if [[ $problems -gt 0 ]]; then
-        fatal "Faltan archivos críticos. Ejecuta setup.sh para generarlos."
+        fatal "Faltan archivos criticos. Ejecuta: sudo ./install.sh"
     fi
 }
 
 # -----------------------------------------------------------------------------
-# Esperar a que un servicio esté saludable
+# Esperar a que un servicio este saludable
 # -----------------------------------------------------------------------------
 wait_for_health() {
     local service="$1"
     local timeout="${2:-120}"
     local elapsed=0
-    log "Esperando a que ${service} esté saludable (timeout: ${timeout}s)..."
+    log "Esperando a que ${service} este saludable (timeout: ${timeout}s)..."
     while ! dc ps "${service}" 2>/dev/null | grep -q "healthy"; do
         sleep 5
         elapsed=$((elapsed+5))
@@ -339,7 +322,7 @@ wait_for_health() {
         printf "."
     done
     echo
-    log "${service} está saludable."
+    log "${service} esta saludable."
 }
 
 # -----------------------------------------------------------------------------
@@ -356,6 +339,6 @@ banner() {
 
 EOF
     echo -e "${CYAN}Matrix Synapse Docker Stack - LAN${NC}"
-    echo -e "${CYAN}Versión: 4.0.0${NC}"
+    echo -e "${CYAN}Version: 5.0.0${NC}"
     echo
 }

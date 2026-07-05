@@ -1,396 +1,230 @@
 # Matrix Docker Stack
 
-> Despliegue completo de **Matrix Synapse** + **PostgreSQL** + **Redis** + **Element Web** + **Nginx** mediante Docker Compose, listo para producción en entornos **LAN 100%**.
->
-> **v4.0.0**: Instalación de un solo comando con `./install.sh`. Genera automáticamente todos los secretos, detecta la IP LAN y Tailscale, instala dependencias, y levanta el stack completo sin intervención manual. Compatible con Ubuntu Server y Raspberry Pi (ARM64).
-
+[![Version: 5.0.0](https://img.shields.io/badge/Version-5.0.0-brightgreen.svg)](CHANGELOG.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Synapse v1.118.0](https://img.shields.io/badge/Synapse-v1.118.0-green.svg)](https://github.com/element-hq/synapse)
-[![PostgreSQL 16.4](https://img.shields.io/badge/PostgreSQL-16.4-blue.svg)](https://www.postgresql.org/)
-[![Redis 7.4](https://img.shields.io/badge/Redis-7.4-red.svg)](https://redis.io/)
-[![Nginx 1.27](https://img.shields.io/badge/Nginx-1.27-green.svg)](https://nginx.org/)
-
----
-
-## Tabla de contenidos
-
-- [Descripción](#descripción)
-- [Características principales](#características-principales)
-- [Arquitectura](#arquitectura)
-- [Requisitos del sistema](#requisitos-del-sistema)
-- [Instalación rápida](#instalación-rápida)
-- [Uso diario](#uso-diario)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Documentación completa](#documentación-completa)
-- [Migración Windows → Ubuntu](#migración-windows--ubuntu)
-- [Seguridad](#seguridad)
-- [Soporte y contribución](#soporte-y-contribución)
-- [Licencia](#licencia)
 
 ---
 
 ## Descripción
 
-Este proyecto permite desplegar un servidor de mensajería **Matrix Synapse** completamente funcional en una red de área local (LAN), sin exponer servicios a Internet pública (para acceso remoto, usar **Tailscale** como VPN). Está diseñado para equipos u organizaciones que requieren comunicaciones internas privadas, seguras y autosuficientes, manteniendo la flexibilidad de migrar entre entornos (Docker Desktop en Windows → Ubuntu Server) sin modificaciones estructurales.
+Stack completo de mensajería **Matrix** para red LAN privada con **Synapse**, **PostgreSQL**, **Redis**, **Element Web** y **Nginx**. Diseñado para acceso exclusivo vía LAN o **Tailscale VPN**. Instalación de un solo comando.
 
-El stack incluye todos los componentes necesarios para una instancia productiva: el servidor **Synapse** como núcleo de mensajería, **PostgreSQL 16** como base de datos transaccional de alto rendimiento (en lugar de SQLite, inadecuado para producción), **Redis 7** como capa de caché y pub/sub interno, el cliente web **Element Web** para acceso desde navegadores, y **Nginx** como reverse proxy que termina TLS y aplica políticas de seguridad.
-
-La configuración está preparada para funcionar inicialmente en **Docker Desktop sobre Windows 10/11**, y puede migrarse sin alteraciones a un **Ubuntu Server 20.04/22.04/24.04 LTS** mediante los scripts de migración incluidos. Todos los secretos están externalizados en un archivo `.env`, los volúmenes son persistentes, los healthchecks verifican la salud de cada servicio, y los logs siguen una política de rotación configurable.
+Todos los secretos se generan criptográficamente, la IP se detecta automáticamente, y el stack queda listo para producción sin intervención manual.
 
 ---
 
-## Características principales
+## Características Principales
 
-- **Stack completo en Docker Compose v2**: orquestación declarativa con redes, volúmenes, restart policies y healthchecks por servicio.
-- **Aislamiento LAN 100%**: red `matrix_internal` con `internal: true` (sin salida a Internet); solo Nginx expone puertos a la LAN.
-- **Sin SQLite**: PostgreSQL 16 con configuración tuneada (shared_buffers, autovacuum, pg_trgm, citext).
-- **Redis 7 con persistencia AOF+RDB**: caché en memoria y pubsub para Synapse.
-- **TLS auto-firmado con CA local y SAN unificado**: certificados generados automáticamente por `setup.sh`, incluyen `matrix.home.arpa`, `element.home.arpa`, `localhost` y `127.0.0.1` en todos los certificados. Nunca se almacenan en Git.
-- **Signing key de Synapse generada automáticamente**: usa el método oficial de Synapse si la imagen Docker está disponible, o generación manual como fallback.
-- **Validaciones pre-instalación completas**: puertos libres, permisos de carpetas, variables obligatorias, detección de valores de ejemplo.
-- **Element Web personalizado**: imagen Docker con `config.json` preconfigurado para tu servidor.
-- **Nginx hardened**: HSTS, CSP, rate limiting, headers de seguridad, sin exponer versión.
-- **Federación deshabilitada por defecto**: máxima privacidad para uso interno.
-- **SMTP completo**: notificaciones por correo, restablecimiento de contraseña.
-- **Scripts PowerShell + Bash**: 12 operaciones administrativas (start, stop, backup, restore, create-user, etc.).
-- **Backups automáticos**: dump de PostgreSQL + tar de configuraciones, con rotación.
-- **Migración Docker Desktop → Ubuntu**: scripts de exportación/importación de volúmenes + servicio systemd.
-- **Documentación exhaustiva**: 15 documentos en español cubriendo instalación, seguridad, administración, troubleshooting.
+- **Instalación de un solo comando** — `sudo ./install.sh` y listo
+- **Cero configuración manual** — secretos, certificados, signing key, todo se genera automáticamente
+- **Secretos generados criptográficamente** — 7 secretos con `openssl rand` (contraseñas, tokens, pepper)
+- **Detección automática de IP LAN y Tailscale** — sin servicios HTTP externos
+- **Compatible con Ubuntu 22.04/24.04, Debian 11+, Raspberry Pi OS 64-bit**
+- **AMD64 y ARM64** — probado en x86_64 y aarch64 (Raspberry Pi)
+- **10 scripts de administración** — start, stop, restart, status, logs, backup, restore, update, healthcheck, uninstall
+- **Desinstalador profesional con 5 niveles** — desde contenedores hasta eliminación total con backup previo
+- **14 pruebas automáticas post-instalación** — verifican cada servicio y endpoint
+- **Healthchecks en todos los servicios** — 5 contenedores con comprobaciones de salud
+- **Certificados TLS auto-firmados con CA local** — SAN unificado (matrix.home.arpa, element.home.arpa, localhost)
+- **Federación deshabilitada** — máxima privacidad para uso interno
+
+---
+
+## Requisitos
+
+| Requisito | Valor |
+|-----------|-------|
+| Docker Engine | 20.10+ |
+| Docker Compose | v2 (plugin) |
+| RAM mínima | 2 GB (4 GB recomendado) |
+| Disco | 5 GB |
+| Sistema operativo | Ubuntu 22.04/24.04, Debian 11+, Raspberry Pi OS 64-bit |
+| Arquitectura | AMD64 (x86_64) o ARM64 (aarch64) |
+
+---
+
+## Instalación Rápida
+
+```bash
+git clone <repo> matrix-docker && cd matrix-docker
+sudo ./install.sh
+docker compose exec synapse register_new_matrix_user -c http://localhost:8008 -a admin
+```
+
+El instalador valida el sistema, instala dependencias, detecta la IP, genera todos los secretos y certificados, construye las imágenes, levanta el stack y ejecuta 14 pruebas automáticas.
 
 ---
 
 ## Arquitectura
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Red LAN (192.168.x.x)                       │
-│                                                                  │
-│   Cliente (Element Web en navegador)                            │
-│              │                                                   │
-│              ▼                                                   │
-│   ┌──────────────────────────────────────────────────────┐      │
-│   │  Host Docker (Windows Desktop o Ubuntu Server)       │      │
-│   │                                                       │      │
-│   │   ┌──────────────────────────────────────────┐       │      │
-│   │   │  matrix_frontend (red Docker bridge)     │       │      │
-│   │   │                                            │       │      │
-│   │   │  ┌─────────┐         ┌──────────────┐    │       │      │
-│   │   │  │ Nginx   │ ──────► │ Element Web  │    │       │      │
-│   │   │  │ :80 :443│         │ (nginx:80)   │    │       │      │
-│   │   │  └────┬─────┘         └──────────────┘    │       │      │
-│   │   │       │                                  │       │      │
-│   │   │       ▼ (proxy_pass)                     │       │      │
-│   │   │  ┌──────────────┐                        │       │      │
-│   │   │  │ Synapse      │                        │       │      │
-│   │   │  │ :8008        │                        │       │      │
-│   │   │  └──────┬───────┘                        │       │      │
-│   │   └─────────┼────────────────────────────────┘       │      │
-│   │   ┌─────────▼────────────────────────────────┐       │      │
-│   │   │  matrix_internal (red Docker bridge)     │       │      │
-│   │   │                                            │       │      │
-│   │   │  ┌──────────────┐    ┌──────────────┐    │       │      │
-│   │   │  │ PostgreSQL   │    │ Redis        │    │       │      │
-│   │   │  │ :5432        │    │ :6379        │    │       │      │
-│   │   │  └──────────────┘    └──────────────┘    │       │      │
-│   │   └────────────────────────────────────────┘       │      │
-│   └──────────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
-```
+El stack está compuesto por **5 servicios** organizados en **2 redes Docker** con **5 volúmenes persistentes**.
 
-Diagramas detallados en formato Mermaid en [`docs/diagrams/mermaid-diagrams.md`](docs/diagrams/mermaid-diagrams.md).
+**Redes:**
+
+- `matrix_internal` — red aislada (`internal: true`), sin salida a Internet. Conecta PostgreSQL, Redis y Synapse.
+- `matrix_frontend` — red bridge accesible desde la LAN/Tailscale. Conecta Synapse, Element Web y Nginx.
+
+**Flujo de tráfico:** Cliente → Nginx (`:80/:443`) → Synapse (`:8008`) / Element Web (`:80`). PostgreSQL y Redis solo son accesibles desde Synapse a través de la red interna.
+
+| Servicio | Imagen | Función |
+|----------|--------|---------|
+| **Synapse** | `matrix-synapse:custom` (basado en `synapse:v1.118.0`) | Servidor Matrix (homeserver) |
+| **PostgreSQL** | `postgres:16.4-alpine3.20` | Base de datos transaccional |
+| **Redis** | `redis:7.4-alpine3.20` | Caché y pub/sub para Synapse |
+| **Element Web** | `matrix-element:custom` (basado en `vectorim/element-web`) | Cliente web |
+| **Nginx** | `nginx:1.27.2-alpine3.20` | Reverse proxy, terminación TLS, rate limiting |
 
 ---
 
-## Requisitos del sistema
+## Scripts de Administración
 
-### Mínimos
+Todos los scripts se encuentran en `scripts/admin/` y se ejecutan desde la raíz del proyecto.
 
-| Recurso | Valor mínimo |
-|---------|--------------|
-| CPU | 2 núcleos (x86_64) |
-| RAM | 4 GB |
-| Almacenamiento | 20 GB SSD |
-| Red | LAN con DHCP o IP estática |
-| Sistema operativo | Windows 10/11 con Docker Desktop, o Ubuntu 20.04+ LTS |
-| Docker | Docker Engine 24+ con Compose v2 |
-| OpenSSL | Para generación de certificados |
+| Script | Comando | Descripción |
+|--------|---------|-------------|
+| `start.sh` | `sudo ./scripts/admin/start.sh` | Iniciar todos los servicios del stack |
+| `stop.sh` | `sudo ./scripts/admin/stop.sh` | Detener todos los servicios (graceful) |
+| `restart.sh` | `sudo ./scripts/admin/restart.sh` | Reiniciar un servicio o todo el stack |
+| `status.sh` | `sudo ./scripts/admin/status.sh` | Estado, uptime y salud de cada contenedor |
+| `logs.sh` | `sudo ./scripts/admin/logs.sh [servicio]` | Ver logs de un servicio o de todos (`-f` para seguimiento) |
+| `backup.sh` | `sudo ./scripts/admin/backup.sh` | Respaldo completo (PostgreSQL dump + configuraciones) |
+| `restore.sh` | `sudo ./scripts/admin/restore.sh` | Restaurar el stack desde un respaldo |
+| `update.sh` | `sudo ./scripts/admin/update.sh` | Actualizar imágenes y reconstruir el stack |
+| `healthcheck.sh` | `sudo ./scripts/admin/healthcheck.sh` | Verificación de salud detallada por servicio |
+| `uninstall.sh` | `sudo ./scripts/admin/uninstall.sh` | Desinstalador con 5 niveles de eliminación |
 
-### Recomendados
-
-| Recurso | Valor recomendado |
-|---------|-------------------|
-| CPU | 4+ núcleos |
-| RAM | 8 GB |
-| Almacenamiento | 100 GB SSD |
-| Red | LAN con DNS local para los subdominios |
-| Sistema operativo | Ubuntu Server 22.04/24.04 LTS |
+> **Nota:** También existe un `uninstall.sh` en la raíz del proyecto (`sudo ./uninstall.sh`) que es un acceso directo al mismo desinstalador.
 
 ---
 
-## Instalación rápida
-
-### 1. Clonar
+## Desinstalación
 
 ```bash
-sudo git clone <repositorio> /opt/matrix-docker
-cd /opt/matrix-docker
+sudo ./uninstall.sh
 ```
 
-> **Nota**: Los archivos `signing.key`, `nginx/certs/*.key` y `nginx/certs/*.crt` **no se descargan** con el clone porque están en `.gitignore`. El instalador los genera automáticamente.
+El desinstalador ofrece **5 niveles** con confirmación en cada paso:
 
-### 2. Instalar (un solo comando)
-
-```bash
-sudo ./install.sh
-```
-
-El instalador realiza **todo** automáticamente:
-
-1. **Valida el sistema**: Ubuntu 20.04+ / Debian 11+, arquitectura x86_64 o ARM64, mínimo 2 GB RAM y 5 GB disco.
-2. **Instala dependencias**: si falta Docker, Docker Compose, OpenSSL, curl o git, los instala con `apt-get`.
-3. **Detecta la IP LAN**: usa `ip route` y `ip addr` (sin servicios HTTP externos). También detecta Tailscale si está instalado.
-4. **Genera `.env`**: con 7 secretos únicos generados con `openssl rand` (criptográficamente seguros). Cero intervención manual.
-5. **Genera la signing key** de Synapse (método oficial o fallback).
-6. **Genera certificados TLS** auto-firmados con SAN unificado (matrix.home.arpa, element.home.arpa, localhost).
-7. **Construye Element Web**.
-8. **Levanta el stack** con `docker compose up -d`.
-9. **Verifica** que los 5 servicios estén saludables.
-10. **Muestra un resumen** con las URLs de acceso e instrucciones.
-
-### 3. Crear el primer administrador
-
-```bash
-docker compose exec synapse register_new_matrix_user \
-    -c http://localhost:8008 -a admin
-```
-
-### 4. Acceder
-
-Abre `https://element.home.arpa` en un navegador de la LAN (o vía Tailscale). Configura DNS local o el archivo `hosts` para que `matrix.home.arpa` y `element.home.arpa` apunten a la IP del servidor. Importa `nginx/certs/ca.crt` en el trust store del cliente.
+1. **Contenedores** — elimina contenedores (datos conservados)
+2. **Contenedores + redes** — elimina redes Docker del stack
+3. **Contenedores + redes + volúmenes** — eliminación completa de datos
+4. **Todo (incluyendo archivos generados)** — `.env`, certificados, claves
+5. **Backup + eliminación completa** — crea un respaldo antes de eliminar (nivel 3)
 
 ---
 
-## Uso diario
+## Configuración del Cliente
 
-### Operaciones frecuentes
+### DNS
 
-| Operación | Linux | Windows |
-|-----------|-------|---------|
-| Iniciar stack | `bash scripts/linux/start.sh` | `.\scripts\windows\start.ps1` |
-| Detener stack | `bash scripts/linux/stop.sh` | `.\scripts\windows\stop.ps1` |
-| Reiniciar todo | `bash scripts/linux/restart.sh` | `.\scripts\windows\restart.ps1` |
-| Estado | `bash scripts/linux/status.sh` | `.\scripts\windows\status.ps1` |
-| Ver logs | `bash scripts/linux/logs.sh synapse -f` | `.\scripts\windows\logs.ps1 synapse -f` |
-| Crear usuario | `bash scripts/linux/create-user.sh juan` | `.\scripts\windows\create-user.ps1 juan` |
-| Backup BD | `bash scripts/linux/backup-db.sh` | `.\scripts\windows\backup-db.ps1` |
-| Restaurar BD | `bash scripts/linux/restore-db.sh archivo.sql.gz` | `.\scripts\windows\restore-db.ps1 archivo.sql.gz` |
-| Actualizar imágenes | `bash scripts/linux/update-images.sh` | `.\scripts\windows\update-images.ps1` |
-| Actualizar contenedores | `bash scripts/linux/update-containers.sh` | `.\scripts\windows\update-containers.ps1` |
-| Limpiar imágenes | `bash scripts/linux/clean-images.sh` | `.\scripts\windows\clean-images.ps1` |
+Configura tu servidor DNS local o el archivo `hosts` de cada cliente para resolver los dominios:
 
-### Operaciones avanzadas con Docker Compose directo
+```
+192.168.x.x  matrix.home.arpa  element.home.arpa
+```
+
+Si usas **Tailscale**, resuelve hacia la IP de Tailscale (`100.x.x.x`).
+
+### Certificado CA
+
+Importa la autoridad certificadora local en cada dispositivo cliente para confiar en los certificados TLS auto-firmados:
 
 ```bash
-# Ver servicios
-docker compose ps
+# Linux
+sudo cp nginx/certs/ca.crt /usr/local/share/ca-certificates/matrix-ca.crt
+sudo update-ca-certificates
 
-# Reiniciar solo un servicio
-docker compose restart synapse
+# macOS
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain nginx/certs/ca.crt
 
-# Ver logs en vivo de un servicio
-docker compose logs -f synapse
-
-# Entrar a un contenedor
-docker compose exec postgres psql -U synapse_user -d synapse
-
-# Detener y eliminar contenedores (mantiene volúmenes)
-docker compose down
-
-# Detener y eliminar todo incluyendo volúmenes (PELIGROSO)
-docker compose down -v
+# Windows
+# Importar ca.crt en "Entidades de certificación raíz de confianza" mediante certlm.msc
 ```
+
+### Acceso
+
+Abre **https://element.home.arpa** en el navegador de cualquier equipo de la LAN o conectado vía Tailscale.
 
 ---
 
-## Estructura del proyecto
+## Estructura del Proyecto
 
 ```
 matrix-docker/
-├── docker-compose.yml         # Orquestación de servicios
-├── .env.example               # Plantilla de variables
-├── .env                       # Variables reales (no commitear)
-├── .gitignore                 # Ignora secretos, backups, certs
-├── README.md                  # Este archivo
-├── CHANGELOG.md               # Historial de cambios
-├── SPECIFICATIONS.md          # Especificaciones técnicas
-├── ADMIN_GUIDE.md             # Manual del administrador
-├── LICENSE                    # Apache 2.0
+├── docker-compose.yml          # Orquestación de los 5 servicios
+├── install.sh                  # Instalador de un solo comando
+├── uninstall.sh                # Acceso directo al desinstalador
+├── .env.example                # Plantilla de variables de entorno
+├── .gitignore                  # Excluye secretos, certificados y backups
+├── LICENSE                     # Apache-2.0
+├── README.md                   # Este archivo
+├── CHANGELOG.md                # Historial de versiones
 │
-├── docs/                      # Documentación detallada
-│   ├── 01-guia-rapida.md
-│   ├── 02-instalacion.md
-│   ├── 03-configuracion.md
-│   ├── 04-arquitectura.md
-│   ├── 05-seguridad.md
-│   ├── 06-administracion.md
-│   ├── 07-actualizacion.md
-│   ├── 08-migracion-windows-ubuntu.md
-│   ├── 09-backups.md
-│   ├── 10-restauracion.md
-│   ├── 11-resolucion-problemas.md
-│   ├── 12-faq.md
-│   ├── 13-buenas-practicas.md
-│   ├── 14-documento-tecnico.md
-│   ├── 15-logs.md
-│   └── diagrams/
-│       └── mermaid-diagrams.md
+├── scripts/
+│   └── admin/                  # 10 scripts de administración
+│       ├── start.sh
+│       ├── stop.sh
+│       ├── restart.sh
+│       ├── status.sh
+│       ├── logs.sh
+│       ├── backup.sh
+│       ├── restore.sh
+│       ├── update.sh
+│       ├── healthcheck.sh
+│       └── uninstall.sh
 │
-├── deployment/                # Migración Ubuntu / systemd / firewall
-│   ├── install-docker-ubuntu.sh
-│   ├── setup-firewall.sh
-│   ├── matrix-docker.service
-│   ├── matrix-backup.cron
-│   ├── logrotate-matrix.conf
-│   └── migrate-from-windows.sh
-│
-├── scripts/                   # Scripts de administración
-│   ├── linux/                 # 16 scripts .sh
-│   └── windows/               # 16 scripts .ps1
-│
-├── backups/                   # Backups generados (gitignored)
-│
-├── config/                    # Config compartida (vacío por defecto)
-│
-├── synapse/                   # Config Synapse
+├── synapse/
+│   ├── Dockerfile              # Imagen personalizada (envsubst)
 │   ├── homeserver.yaml.template
 │   ├── entrypoint.sh
-│   ├── log.config
-│   └── signing.key
+│   └── log.config
 │
-├── postgres/                  # Config PostgreSQL
-│   ├── init.sql
-│   ├── postgresql.conf
-│   └── pg_hba.conf
+├── postgres/
+│   ├── init.sql                # Creación de base de datos y usuario
+│   ├── postgresql.conf         # Configuración tuneada
+│   └── pg_hba.conf             # Autenticación scram-sha-256
 │
-├── redis/                     # Config Redis
-│   ├── redis.conf.template
+├── redis/
+│   ├── redis.conf.template     # Comandos peligrosos renombrados
 │   └── entrypoint.sh
 │
-├── element/                   # Element Web
-│   ├── Dockerfile
+├── element/
+│   ├── Dockerfile              # Imagen personalizada con config.json
 │   ├── config.json
 │   └── nginx.conf
 │
-└── nginx/                     # Nginx reverse proxy
-    ├── nginx.conf
-    ├── conf.d/
-    │   ├── 00-default.conf
-    │   ├── matrix.home.arpa.conf
-    │   └── element.home.arpa.conf
-    ├── snippets/
-    │   ├── security-headers.conf
-    │   └── proxy-params.conf
-    ├── well-known/
-    │   └── matrix/
-    │       ├── client.json
-    │       └── server.json
-    └── certs/                 # Certs generados (gitignored)
+├── nginx/
+│   ├── nginx.conf
+│   ├── conf.d/                 # Virtual hosts (matrix + element)
+│   ├── snippets/               # Headers de seguridad, proxy params
+│   ├── well-known/matrix/      # Delegación de federación
+│   └── certs/                  # Certificados TLS (generados, gitignored)
+│
+├── deployment/                 # systemd, firewall, migración
+├── docs/                       # 15 documentos de referencia
+├── backups/                    # Respaldos (gitignored)
+└── lib/                        # Funciones compartidas de instalación
 ```
-
----
-
-## Documentación completa
-
-Toda la documentación está en la carpeta [`docs/`](docs/) y se organiza en 15 documentos temáticos más un anexo de diagramas Mermaid. Para una visión general rápida, empieza por [`docs/01-guia-rapida.md`](docs/01-guia-rapida.md).
-
-| Documento | Contenido |
-|-----------|-----------|
-| [01-guia-rapida](docs/01-guia-rapida.md) | Checklist de puesta en marcha en 10 minutos |
-| [02-instalacion](docs/02-instalacion.md) | Instalación detallada en Windows y Ubuntu |
-| [03-configuracion](docs/03-configuracion.md) | Variables, dominios, SMTP, branding |
-| [04-arquitectura](docs/04-arquitectura.md) | Componentes, redes, volúmenes, dependencias |
-| [05-seguridad](docs/05-seguridad.md) | Modelo de amenazas y mitigaciones |
-| [06-administracion](docs/06-administracion.md) | Tareas diarias del administrador |
-| [07-actualizacion](docs/07-actualizacion.md) | Procedimiento de actualización de imágenes |
-| [08-migracion-windows-ubuntu](docs/08-migracion-windows-ubuntu.md) | Migración paso a paso |
-| [09-backups](docs/09-backups.md) | Estrategia y scripts de respaldo |
-| [10-restauracion](docs/10-restauracion.md) | Restauración ante desastres |
-| [11-resolucion-problemas](docs/11-resolucion-problemas.md) | Diagnóstico y solución de problemas |
-| [12-faq](docs/12-faq.md) | Preguntas frecuentes |
-| [13-buenas-practicas](docs/13-buenas-practicas.md) | Recomendaciones operativas |
-| [14-documento-tecnico](docs/14-documento-tecnico.md) | Especificación técnica formal |
-| [15-logs](docs/15-logs.md) | Logs, rotación, diagnóstico |
-| [diagrams/mermaid-diagrams](docs/diagrams/mermaid-diagrams.md) | Diagramas lógicos y de flujo |
-
----
-
-## Migración Windows → Ubuntu
-
-El proyecto está diseñado para migrar sin modificaciones estructurales entre Docker Desktop (Windows) y Ubuntu Server. El procedimiento completo está documentado en [`docs/08-migracion-windows-ubuntu.md`](docs/08-migracion-windows-ubuntu.md).
-
-Resumen del flujo:
-
-1. **En Windows**: detener el stack y exportar volúmenes con `scripts/windows/export-volumes.ps1`.
-2. **Transferir**: copiar el tarball + proyecto al servidor Ubuntu (scp, rsync, USB).
-3. **En Ubuntu**: instalar Docker con `deployment/install-docker-ubuntu.sh`.
-4. **Importar**: ejecutar `sudo bash deployment/migrate-from-windows.sh matrix-migration.tar.gz /opt/matrix-docker`.
-5. **Ajustar**: actualizar `.env` (IPs del host), DNS local, firewall.
-6. **Iniciar**: `bash scripts/linux/start.sh`.
-7. **Systemd**: instalar el servicio para auto-arranque en boot.
 
 ---
 
 ## Seguridad
 
-Las decisiones de seguridad están documentadas en [`docs/05-seguridad.md`](docs/05-seguridad.md). Aspectos clave:
-
-- **Sin exposición a Internet**: los puertos 80/443 se publican solo para LAN; los demás servicios no se publican.
-- **Secretos externalizados**: contraseñas y tokens en `.env` (gitignored). Claves privadas (certificados, signing key) **nunca en Git**; se generan automáticamente durante `setup.sh`.
-- **Red aislada**: `matrix_internal` con `internal: true` — PostgreSQL y Redis sin salida a Internet. Synapse usa `matrix_frontend` para SMTP.
-- **PostgreSQL con scram-sha-256** y `pg_hba.conf` que solo permite conexiones desde la red Docker interna.
-- **Redis con contraseña** y comandos peligrosos deshabilitados (`FLUSHALL`, `CONFIG`, `KEYS`, `DEBUG`).
-- **Contenedores con `no-new-privileges`** y `security_opt`.
-- **Nginx con headers HSTS, CSP, X-Frame-Options, X-Content-Type-Options**, sin exponer versión.
-- **Rate limiting** en Nginx por IP y por endpoint (auth, sync, media).
-- **Logging estructurado** con rotación para auditoría.
-- **Federación deshabilitada** por defecto para máxima privacidad.
-
----
-
-## Soporte y contribución
-
-### Reportar problemas
-
-Si encuentras un bug o tienes una solicitud de mejora:
-
-1. Verifica [`docs/11-resolucion-problemas.md`](docs/11-resolucion-problemas.md) y [`docs/12-faq.md`](docs/12-faq.md).
-2. Recopila logs relevantes con `scripts/linux/logs.sh <servicio>`.
-3. Adjunta salida de `scripts/linux/status.sh`.
-
-### Contribuir
-
-1. Fork el repositorio.
-2. Crea una rama: `git checkout -b feature/nueva-funcionalidad`.
-3. Realiza cambios siguiendo las buenas prácticas de [`docs/13-buenas-practicas.md`](docs/13-buenas-practicas.md).
-4. Verifica que `docker compose config --quiet` no arroje errores.
-5. Envía un Pull Request describiendo los cambios.
+- **`no-new-privileges:true`** en todos los contenedores
+- **Red `matrix_internal` aislada** — PostgreSQL y Redis sin salida a Internet (`internal: true`)
+- **PostgreSQL con `scram-sha-256`** — `pg_hba.conf` restringe conexiones a la red Docker interna, denegando todo lo demás (`reject 0.0.0.0/0`)
+- **Redis con `rename-command`** — `FLUSHALL`, `FLUSHDB`, `CONFIG`, `KEYS`, `DEBUG` deshabilitados; `SHUTDOWN` renombrado
+- **`.env` con permisos `chmod 600`** — solo legible por root
+- **Claves privadas fuera de Git** — certificados TLS y signing key en `.gitignore`, generados en tiempo de instalación
+- **Nginx hardened** — HSTS, CSP, X-Frame-Options, X-Content-Type-Options, rate limiting por IP y endpoint, versión oculta
+- **Healthchecks en todos los servicios** — detección temprana de fallos
+- **Federación deshabilitada** — el servidor no se comunica con otros homeservers de Matrix
+- **Rotación de logs** — límites de tamaño y cantidad por contenedor (`json-file` driver)
 
 ---
 
 ## Licencia
 
-Este proyecto se distribuye bajo la licencia **Apache License 2.0**. Ver el archivo [LICENSE](LICENSE) para el texto completo.
+Este proyecto se distribuye bajo la licencia **Apache License 2.0**.
 
-Copyright 2026 Matrix Docker Project.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Ver el archivo [LICENSE](LICENSE) para el texto completo.

@@ -2,8 +2,10 @@
 # =============================================================================
 # Redis Entrypoint Wrapper
 # -----------------------------------------------------------------------------
-# Generates redis.conf from template using environment variable,
+# Generates redis.conf from template using sed,
 # then starts Redis server.
+#
+# Usa /bin/sh (POSIX) - compatible con Alpine BusyBox.
 # =============================================================================
 
 set -e
@@ -11,7 +13,7 @@ set -e
 TEMPLATE_FILE="/usr/local/etc/redis/redis.conf.template"
 CONFIG_FILE="/usr/local/etc/redis/redis.conf"
 
-if [[ -f "${TEMPLATE_FILE}" ]]; then
+if [ -f "${TEMPLATE_FILE}" ]; then
     echo "[redis-entrypoint] Generating redis.conf from template..."
     sed "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|g" \
         "${TEMPLATE_FILE}" > "${CONFIG_FILE}"

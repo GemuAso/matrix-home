@@ -1,5 +1,5 @@
 # =============================================================================
-# .gitignore - Matrix Docker Project
+# .gitignore - Matrix Docker Project v5.0.0
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -12,7 +12,7 @@
 *.secret
 
 # -----------------------------------------------------------------------------
-# Certificados y claves (se generan automáticamente por install.sh)
+# Certificados y claves (se generan automaticamente por install.sh)
 # -----------------------------------------------------------------------------
 nginx/certs/*.crt
 nginx/certs/*.key
