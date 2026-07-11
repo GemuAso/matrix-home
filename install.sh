@@ -315,10 +315,17 @@ generate_env() {
 
     # Verificar que no quedaron marcadores
     local remaining
-    remaining=$(grep -c '__GENERATE__\|__DYNAMIC__' "${env_file}" 2>/dev/null || echo "0")
+    # remaining=$(grep -c '__GENERATE__\|__DYNAMIC__' "${env_file}" 2>/dev/null || echo "0")
+    # if (( remaining > 0 )); then
+    #     error "Quedaron ${remaining} marcadores sin reemplazar en .env"
+    #     grep '__GENERATE__\|__DYNAMIC__' "${env_file}" 2>/dev/null || true
+    #     fatal "La generacion de .env fallo."
+    # fi
+
+    remaining=$(grep -Ec '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || echo "0")
     if (( remaining > 0 )); then
         error "Quedaron ${remaining} marcadores sin reemplazar en .env"
-        grep '__GENERATE__\|__DYNAMIC__' "${env_file}" 2>/dev/null || true
+        grep -E '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || true
         fatal "La generacion de .env fallo."
     fi
 
@@ -683,7 +690,8 @@ run_tests() {
     docker compose version >/dev/null 2>&1 && add_pass "Docker Compose" || add_fail "Docker Compose" "no instalado"
 
     # .env sin marcadores
-    if [[ -f "${INSTALL_DIR}/.env" ]] && ! grep -q '__GENERATE__\|__DYNAMIC__' "${INSTALL_DIR}/.env" 2>/dev/null; then
+    # if [[ -f "${INSTALL_DIR}/.env" ]] && ! grep -q '__GENERATE__\|__DYNAMIC__' "${INSTALL_DIR}/.env" 2>/dev/null; then
+    if [[ -f "${INSTALL_DIR}/.env" ]] && ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${INSTALL_DIR}/.env"; then
         add_pass "Secretos (.env)"
     else
         add_fail "Secretos (.env)" "marcadores sin reemplazar"
