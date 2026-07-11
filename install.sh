@@ -322,7 +322,9 @@ generate_env() {
     #     fatal "La generacion de .env fallo."
     # fi
 
-    remaining=$(grep -Ec '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || echo "0")
+    # remaining=$(grep -Ec '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || echo "0")
+    remaining=$(grep -Ec '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || true)
+    remaining=${remaining:-0}
     if (( remaining > 0 )); then
         error "Quedaron ${remaining} marcadores sin reemplazar en .env"
         grep -E '^[A-Za-z_][A-Za-z0-9_]*=.*(__GENERATE__|__DYNAMIC__)' "${env_file}" 2>/dev/null || true
