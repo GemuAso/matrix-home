@@ -490,108 +490,88 @@ ensure_permissions() {
 }
 
 # -----------------------------------------------------------------------------
-# Generación del archivo .env completo
+# Generación del archivo .env a partir de .env.example (UNICA plantilla)
+# -----------------------------------------------------------------------------
+# Copia .env.example y reemplaza:
+#   __GENERATE__  → secreto criptografico (cada uno unico)
+#   __DYNAMIC__   → valor detectado en tiempo de ejecucion (IP, CIDR, fecha)
+#
+# Todos los demas valores provienen exclusivamente de .env.example.
+# No existe ninguna segunda fuente de configuracion.
 # -----------------------------------------------------------------------------
 generate_env_file() {
     local target_file="$1"
     local host_ip="$2"
+    local example_file="$3"
 
+    # Verificar que .env.example existe
+    if [[ ! -f "${example_file}" ]]; then
+        echo "ERROR: No se encontro ${example_file}"
+        return 1
+    fi
+
+    # Generar secretos unicos para cada marcador __GENERATE__
+    # Cada variable recibe su propio generador apropiado al tipo de uso
     local pg_pass redis_pass reg_secret macaroon_secret form_secret \
           pepper admin_token
 
-    pg_pass=$(generate_secret_password)
-    redis_pass=$(generate_secret_hex)
+    pg_pass=$(generate_secret_password)       # Password alfanumerica
+    redis_pass=$(generate_secret_hex)          # Hex para compatibilidad Redis
     reg_secret=$(generate_secret_hex)
     macaroon_secret=$(generate_secret_hex)
     form_secret=$(generate_secret_hex)
     pepper=$(generate_secret_hex)
     admin_token=$(generate_secret_hex)
 
-    cat > "${target_file}" <<ENV_EOF
+    # Copiar .env.example como base
+    cp "${example_file}" "${target_file}"
+
+    # Reemplazar cada marcador __GENERATE__ individualmente
+    # (no usar un bucle generico para evitar sustituciones parciales)
+    sed -i "s|^POSTGRES_PASSWORD=__GENERATE__$|POSTGRES_PASSWORD=${pg_pass}|"       "${target_file}"
+    sed -i "s|^REDIS_PASSWORD=__GENERATE__$|REDIS_PASSWORD=${redis_pass}|"         "${target_file}"
+    sed -i "s|^SYNAPSE_REGISTRATION_SHARED_SECRET=__GENERATE__$|SYNAPSE_REGISTRATION_SHARED_SECRET=${reg_secret}|" "${target_file}"
+    sed -i "s|^SYNAPSE_MACAROON_SECRET_KEY=__GENERATE__$|SYNAPSE_MACAROON_SECRET_KEY=${macaroon_secret}|"     "${target_file}"
+    sed -i "s|^SYNAPSE_ADMIN_API_TOKEN=__GENERATE__$|SYNAPSE_ADMIN_API_TOKEN=${admin_token}|"                 "${target_file}"
+    sed -i "s|^SYNAPSE_FORM_SECRET=__GENERATE__$|SYNAPSE_FORM_SECRET=${form_secret}|"                         "${target_file}"
+    sed -i "s|^SYNAPSE_PASSWORD_PEPPER=__GENERATE__$|SYNAPSE_PASSWORD_PEPPER=${pepper}|"                     "${target_file}"
+
+    # Reemplazar marcadores dinamicos
+    local lan_cidr
+    lan_cidr=$(detect_lan_cidr "${host_ip}")
+    sed -i "s|^LAN_CIDR=__DYNAMIC__$|LAN_CIDR=${lan_cidr}|"     "${target_file}"
+    sed -i "s|^HOST_IP=__DYNAMIC__$|HOST_IP=${host_ip}|"       "${target_file}"
+    sed -i "s|^INSTALL_DATE=__DYNAMIC__$|INSTALL_DATE=$(date -Iseconds)|" "${target_file}"
+
+    # Verificar que no quedaron marcadores sin reemplazar
+    local remaining
+    remaining=$(grep -c '__GENERATE__\|__DYNAMIC__' "${target_file}" 2>/dev/null || true)
+    if (( remaining > 0 )); then
+        echo "WARN: Quedaron ${remaining} marcadores sin reemplazar en .env"
+        grep '__GENERATE__\|__DYNAMIC__' "${target_file}" 2>/dev/null || true
+    fi
+
+    # Agregar cabecera con metadatos (sin sobreescribir el archivo)
+    local header_temp
+    header_temp=$(mktemp)
+    cat > "${header_temp}" <<HEADER_EOF
 # =============================================================================
-# .env - Generado automáticamente por install.sh
+# .env - Generado automaticamente por install.sh
 # Fecha: $(date -Iseconds)
 # IP del servidor: ${host_ip}
+# Version: 5.1.0
 # -----------------------------------------------------------------------------
 # NO edites este archivo manualmente a menos que sepas lo que haces.
-# Los secretos fueron generados con openssl rand (criptográficamente seguros).
+# Los secretos fueron generados con openssl rand (criptograficamente seguros).
+# La plantilla original es .env.example - no existen dos fuentes de verdad.
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Configuracion general
-# -----------------------------------------------------------------------------
-TZ=America/Bogota
+HEADER_EOF
 
-# -----------------------------------------------------------------------------
-# Matrix Synapse - Identidad del servidor
-# -----------------------------------------------------------------------------
-SYNAPSE_SERVER_NAME=home.arpa
-SYNAPSE_PUBLIC_URL=https://matrix.home.arpa
-SYNAPSE_REPORT_STATS=false
-SYNAPSE_LOG_CONFIG=/data/homeserver.log.config
-
-# -----------------------------------------------------------------------------
-# Matrix Synapse - Registro de usuarios
-# -----------------------------------------------------------------------------
-SYNAPSE_ENABLE_REGISTRATION=false
-SYNAPSE_REGISTRATION_SHARED_SECRET=${reg_secret}
-SYNAPSE_MACAROON_SECRET_KEY=${macaroon_secret}
-SYNAPSE_ADMIN_API_TOKEN=${admin_token}
-SYNAPSE_FORM_SECRET=${form_secret}
-SYNAPSE_PASSWORD_PEPPER=${pepper}
-
-# -----------------------------------------------------------------------------
-# PostgreSQL - Base de datos
-# -----------------------------------------------------------------------------
-POSTGRES_USER=synapse_user
-POSTGRES_PASSWORD=${pg_pass}
-POSTGRES_DB=synapse
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-
-# -----------------------------------------------------------------------------
-# Redis - Cache y pubsub
-# -----------------------------------------------------------------------------
-REDIS_PASSWORD=${redis_pass}
-
-# -----------------------------------------------------------------------------
-# SMTP - Correo electronico para notificaciones
-# -----------------------------------------------------------------------------
-SMTP_HOST=smtp.home.arpa
-SMTP_PORT=587
-SMTP_USER=noresponder@home.arpa
-SMTP_PASS=
-SMTP_FROM=noresponder@home.arpa
-SMTP_FROM_NAME=Matrix Notificaciones
-SMTP_TLS=true
-SMTP_REQUIRE_TLS=true
-SMTP_THROTTLE_PERHOUR=50
-
-# -----------------------------------------------------------------------------
-# Element Web
-# -----------------------------------------------------------------------------
-ELEMENT_URL=https://element.home.arpa
-
-# -----------------------------------------------------------------------------
-# Nginx - Reverse Proxy
-# -----------------------------------------------------------------------------
-NGINX_HTTP_PORT=80
-NGINX_HTTPS_PORT=443
-NGINX_MATRIX_DOMAIN=matrix.home.arpa
-NGINX_ELEMENT_DOMAIN=element.home.arpa
-
-# -----------------------------------------------------------------------------
-# Backups
-# -----------------------------------------------------------------------------
-BACKUP_RETENTION_DAYS=7
-BACKUP_DIR=./backups
-
-# -----------------------------------------------------------------------------
-# Red LAN
-# -----------------------------------------------------------------------------
-LAN_CIDR=$(detect_lan_cidr "${host_ip}")
-HOST_IP=${host_ip}
-ENV_EOF
+    # Insertar cabecera al inicio
+    cat "${header_temp}" "${target_file}" > "${target_file}.tmp"
+    mv "${target_file}.tmp" "${target_file}"
+    rm -f "${header_temp}"
 
     chmod 600 "${target_file}"
 }

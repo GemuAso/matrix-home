@@ -1,61 +1,39 @@
 # =============================================================================
 # docker-compose.yml - Matrix Synapse Stack (Produccion LAN Privada)
 # -----------------------------------------------------------------------------
-# Stack completo: Matrix Synapse + PostgreSQL + Redis + Element Web + Nginx
-# Disenado para despliegue 100% LAN (sin exposicion a Internet publica).
-# Acceso remoto unicamente via Tailscale VPN.
-# Compatible con: Ubuntu 22.04/24.04 LTS, Raspberry Pi OS 64-bit, AMD64, ARM64
-# -----------------------------------------------------------------------------
-# Version: 5.0.0
+# Version: 5.1.0
 # Licencia: Apache-2.0
+# Compatible: Ubuntu 22.04/24.04, Debian 11+, Raspberry Pi OS, AMD64, ARM64
 # =============================================================================
 
-# Docker Compose v2 (no requiere declaracion 'version' en Compose Specification)
 name: matrix-stack
 
-# =============================================================================
-# Redes personalizadas
-# =============================================================================
 networks:
-  # Red interna - solo servicios backend (sin salida a Internet)
   matrix_internal:
     driver: bridge
     name: matrix_internal
     internal: true
     attachable: false
-
-  # Red frontend - servicios accesibles desde LAN / Tailscale
   matrix_frontend:
     driver: bridge
     name: matrix_frontend
 
-# =============================================================================
-# Volumenes persistentes
-# =============================================================================
 volumes:
   synapse_data:
     name: matrix_synapse_data
-    driver: local
   postgres_data:
     name: matrix_postgres_data
-    driver: local
   redis_data:
     name: matrix_redis_data
-    driver: local
   element_nginx_cache:
     name: matrix_element_cache
-    driver: local
   nginx_logs:
     name: matrix_nginx_logs
-    driver: local
 
-# =============================================================================
-# Servicios
-# =============================================================================
 services:
 
   # ---------------------------------------------------------------------------
-  # PostgreSQL 16 - Base de datos principal de Synapse
+  # PostgreSQL 16
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16.4-alpine3.20
@@ -74,7 +52,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C --no-locale"
       TZ: ${TZ}
     command: >
       postgres
@@ -83,9 +61,9 @@ services:
       -c listen_addresses=*
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 30s
     logging:
       driver: "json-file"
@@ -100,7 +78,7 @@ services:
           memory: 1G
 
   # ---------------------------------------------------------------------------
-  # Redis 7 - Cache y pubsub para Synapse
+  # Redis 7
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7.4-alpine3.20
@@ -118,8 +96,8 @@ services:
       TZ: ${TZ}
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "$${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
-      interval: 15s
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
@@ -138,7 +116,7 @@ services:
           memory: 512M
 
   # ---------------------------------------------------------------------------
-  # Matrix Synapse - Servidor principal (imagen personalizada con envsubst)
+  # Matrix Synapse (imagen personalizada con envsubst + curl + bash)
   # ---------------------------------------------------------------------------
   synapse:
     build:
@@ -161,7 +139,6 @@ services:
     volumes:
       - synapse_data:/data
       - ./synapse/homeserver.yaml.template:/data/homeserver.yaml.template:ro
-      - ./synapse/entrypoint.sh:/entrypoint.sh:ro
       - ./synapse/log.config:/data/homeserver.log.config:ro
       - ./synapse/signing.key:/data/homeserver.signing.key:ro
       - ./backups:/backups:ro
@@ -186,13 +163,12 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME}
       ELEMENT_URL: ${ELEMENT_URL}
       TZ: ${TZ}
-    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     healthcheck:
       test: ["CMD-SHELL", "curl -fSs http://localhost:8008/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 120s
     logging:
       driver: "json-file"
       options:
@@ -210,7 +186,7 @@ services:
           memory: 2G
 
   # ---------------------------------------------------------------------------
-  # Element Web - Cliente web
+  # Element Web
   # ---------------------------------------------------------------------------
   element:
     build:
@@ -243,7 +219,7 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
-  # Nginx Reverse Proxy - Terminacion TLS y enrutamiento
+  # Nginx Reverse Proxy
   # ---------------------------------------------------------------------------
   nginx:
     image: nginx:1.27.2-alpine3.20

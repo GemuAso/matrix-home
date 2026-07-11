@@ -7,6 +7,42 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/sp
 
 ---
 
+## [5.1.0] - 2026-07-06
+
+### Correcciones basadas en instalación real (Ubuntu 24.04 ARM64)
+
+- **SMTP_FROM_NAME sin comillas**: El valor `SMTP_FROM_NAME=Matrix Notificaciones` causaba error "Notificaciones: command not found" porque el shell interpretaba el espacio como separador. Corregido a `SMTP_FROM_NAME="Matrix Notificaciones"` en `.env.example`.
+- **Unificación de configuración**: Eliminada la duplicación entre `.env.example` y `generate_env_file()`. Ahora `.env.example` es la ÚNICA plantilla. El instalador lo copia y reemplaza marcadores `__GENERATE__` (secretos) y `__DYNAMIC__` (IP, CIDR, fecha). No existen dos fuentes de verdad.
+- **PostgreSQL: server_version eliminado**: El parámetro `server_version = '16.4'` en `postgresql.conf` es de solo lectura y causaba que PostgreSQL fallara al iniciar. Eliminado completamente. Este era el bug raíz que causaba la cascada de fallos.
+- **PostgreSQL: locale simplificado**: Cambiados `lc_messages`, `lc_monetary`, `lc_numeric`, `lc_time` de `en_US.UTF-8` a `C`. Se eliminó `POSTGRES_INITDB_ARGS` que incluía `--locale=C` (innecesario, ya es el default en Alpine). Esto evita errores de locale en ARM64.
+- **PostgreSQL: pg_hba.conf corregido**: Agregadas reglas para el superuser `postgres` desde la red Docker (necesario para `pg_isready` healthcheck). Agregado rango `172.17.0.0/16` (Docker Bridge por defecto). Cambiadas reglas de `synapse` para permitir acceso a `all` databases (no solo `synapse`).
+- **PostgreSQL: init.sql simplificado**: Eliminados los `ALTER DATABASE` que ejecutaban antes de que la DB estuviera lista. Eliminados los `\echo` informativos. Solo quedan las dos extensiones esenciales: `citext` y `pg_trgm`.
+- **PostgreSQL: parámetros ajustados para ARM64**: Reducidos `shared_buffers` (256MB), `effective_cache_size` (1GB), `work_mem` (8MB), `max_worker_processes` (2), `max_parallel_workers_per_gather` (1). Estos valores son apropiados para Raspberry Pi 4.
+- **PostgreSQL: healthcheck mejorado**: Aumentados `retries` de 5 a 10. Reducido `interval` de 15s a 10s para detección más rápida.
+
+### Corrección crítica: Synapse en estado "Created"
+
+- **Causa raíz identificada**: El contenedor de Synapse se quedaba en estado "Created" (nunca iniciaba) debido a una cascada: `server_version` en postgresql.conf → PostgreSQL fallaba → nunca alcanzaba "healthy" → `depends_on: condition: service_healthy` impedía que Synapse iniciara → Synapse permanecía en "Created" → Nginx también en "Created".
+- **Dockerfile de Synapse mejorado**: Ahora instala explícitamente `bash` (antes se asumía). El `ENTRYPOINT` se define en el Dockerfile (no se sobrescribe desde docker-compose.yml). Se copia el `entrypoint.sh` durante el build con `chmod +x`. Esto elimina cualquier posibilidad de que el entrypoint no tenga permisos de ejecución.
+- **Entrypoint de Synapse con diagnóstico**: Agregadas verificaciones al inicio: existencia de template, existencia de signing.key, disponibilidad de `envsubst`, verificación de que `homeserver.yaml` generado no está vacío, verificación de que contiene `server_name:`, conteo de variables sin sustituir.
+- **docker-compose.yml: entrypoint eliminado de synapse**: Se removió `entrypoint: ["/bin/bash", "/entrypoint.sh"]` del servicio synapse porque ahora viene definido en el Dockerfile personalizado.
+- **docker-compose.yml: POSTGRES_INITDB_ARGS corregido**: Cambiado a `--encoding=UTF8 --locale=C --no-locale` (el `--no-locale` evita warnings en Alpine).
+- **docker-compose.yml: start_period aumentado para Synapse**: De 90s a 120s para dar más tiempo en primer arranque (genera esquema de DB).
+
+### Diagnóstico automático en install.sh
+
+- **Detección de estado "Created"**: El instalador ahora detecta contenedores en estado `created`, `dead`, `exited`, y `restarting` (con más de 5 reinicios). Cada estado activa un diagnóstico automático completo.
+- **Función `show_service_diagnostic()`**: Muestra automáticamente: estado del contenedor, código de salida, los 30 últimas líneas de log, y una solución sugerida específica por servicio.
+- **Paso 10 (nuevo): Validación pre-build**: Verifica existencia de Dockerfiles, entrypoints, templates, signing key, certificados, configs de Nginx, configs de PostgreSQL, y validez sintáctica de docker-compose.yml ANTES de intentar construir.
+- **Build con `--no-cache`**: Las imágenes se construyen con `--no-cache` para garantizar que los cambios en el Dockerfile se apliquen.
+- **16 pruebas automáticas post-instalación** (antes 14): Agregadas pruebas de certificados TLS, healthz HTTP de Nginx, y conteo de variables sin sustituir en config de Synapse.
+
+### uninstall.sh profesional
+
+- **Nuevo `uninstall.sh` en raíz del proyecto**: Desinstalador con 5 niveles. El nivel 3 requiere escribir "ELIMINAR" para confirmar. El nivel 5 crea backup antes de eliminar. Detecta PROJECT_ROOT automáticamente.
+
+---
+
 ## [5.0.0] - 2026-07-06
 
 ### Cambio mayor: Producción lista, instalación cero-touch y corrección crítica de Synapse
